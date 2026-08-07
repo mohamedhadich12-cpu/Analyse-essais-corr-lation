@@ -1,0 +1,164 @@
+# =============================================================================
+# Corrélation couple transmissions instrumentées (Manner PCM16) / banc GMP
+# Chapitre 10 du rapport AMDEC
+# =============================================================================
+#
+# MODE D'EMPLOI
+#   1. Copier ce fichier en `config/correlation.yaml`.
+#   2. Renseigner `racine_donnees`.
+#   3. Lancer `python scripts/01_inventaire.py --racine "<racine>"`.
+#   4. Recopier ici la section `canaux:` produite dans
+#      `sortie/inventaire/canaux_proposition.yaml`, APRÈS avoir vérifié chaque
+#      libellé dans `sortie/inventaire/inventaire_canaux.md`.
+#   5. Lancer `python scripts/02_analyse.py`.
+#
+# Tout ce qui est marqué « À RENSEIGNER » ou « À CONFIRMER » doit être tranché
+# par l'exploitant : le pipeline ne devine aucune de ces valeurs, et déclarera
+# explicitement « non calculable » toute grandeur qui en dépend.
+# =============================================================================
+
+# --- Données et sortie -------------------------------------------------------
+racine_donnees: "C:/Users/SD17365/Documents"   # À RENSEIGNER (chemin exact)
+dossier_sortie: "sortie"
+
+# --- Caractéristiques de la chaîne de mesure ---------------------------------
+pleine_echelle_Nm: 1500.0   # PE du capteur : toutes les grandeurs en « % PE » s'y rapportent
+
+comparaison:
+  # Voie de couple mesuré confrontée à la référence banc :
+  #   gauche | droite | moyenne | somme
+  # « moyenne » est cohérent avec une référence prise au même point de la
+  # chaîne (rapport 1:1) sur un essai en ligne droite ; « somme » convient si
+  # la référence représente le couple total aux roues.
+  mode: "moyenne"
+
+  # Facteur appliqué au couple de RÉFÉRENCE pour le ramener au point de mesure
+  # des transmissions. 1.0 = référence prise au même point (cas de cette campagne).
+  rapport_reduction: 1.0
+
+  # Incertitude-type (k=1) du moyen de référence banc, en N·m.
+  # Elle ne peut PAS être déduite des acquisitions : sans elle, la contribution
+  # est exclue du bilan et l'incertitude élargie annoncée est un MINORANT.
+  # À reprendre du certificat d'étalonnage du banc GMP.
+  incertitude_reference_k1_Nm: null   # À RENSEIGNER
+
+# --- Acquisition -------------------------------------------------------------
+acquisition:
+  # Fréquence de la grille de temps commune sur laquelle tous les canaux sont
+  # rééchantillonnés. À choisir ≥ à la cadence du canal le plus rapide utilisé
+  # (visible dans le rapport d'inventaire) pour ne pas perdre d'information ;
+  # une valeur trop élevée ne fait que gonfler le temps de calcul.
+  frequence_reechantillonnage_Hz: 100
+
+# --- Mapping des canaux ------------------------------------------------------
+# `defaut` s'applique à tous les essais ; `par_dossier` surcharge clé par clé.
+# `null` = canal absent de l'acquisition (les grandeurs qui en dépendent seront
+# déclarées non calculables, jamais estimées).
+canaux:
+  defaut:
+    couple_mesure_gauche: null    # À RENSEIGNER depuis l'inventaire
+    couple_mesure_droite: null    # À RENSEIGNER
+    couple_reference: null        # À RENSEIGNER
+    regime: null                  # À RENSEIGNER
+    temperature: null             # À RENSEIGNER (arbre, capteur ou électronique rotor)
+    etat: []                      # canaux LED / CRC / erreurs, si présents
+
+  par_dossier:
+    # Ne renseigner ici que ce qui diffère du bloc `defaut` ci-dessus.
+    # Si les libellés diffèrent d'un dossier à l'autre, tout redéclarer ici.
+    "1-Balayage Couple": {}
+    "2-CPC 20°C": {}
+    "3-4_1000M_DA": {}
+    "4-iso Pwr_traction MaV_statique": {}
+    "5-Décollage en pente": {}
+    "6-iso Pwr_traction MaV_dynamique": {}
+    "7-WLTC": {}
+
+# --- Déclaration des essais --------------------------------------------------
+# type :
+#   balayage      → régression, offset, sensibilité, non-linéarité, hystérésis
+#   repetabilite  → dispersion à couple de référence constant
+#   dynamique     → recalage temporel par intercorrélation
+#
+# ligne_droite : true UNIQUEMENT si l'essai est en ligne droite sans
+#   sollicitation différentielle. C'est la condition pour que le résidu
+#   gauche − droite soit un indicateur métrologique et non un écart physique réel.
+#
+# groupe_remontage : étiquette libre ("avant" / "apres" ...). Il en faut au moins
+#   DEUX distinctes dans la campagne pour que la « répétabilité après remontage »
+#   soit calculable ; sans cela elle sera déclarée non calculable.
+essais:
+  "1-Balayage Couple":
+    type: "balayage"
+    ligne_droite: false           # À RENSEIGNER
+    groupe_remontage: null        # À RENSEIGNER (ex. "avant")
+
+  "2-CPC 20°C":
+    type: "repetabilite"
+    ligne_droite: false           # À RENSEIGNER
+    groupe_remontage: null        # À RENSEIGNER (ex. "apres")
+
+  "3-4_1000M_DA":
+    type: "dynamique"             # TYPE À CONFIRMER (non précisé lors du cadrage)
+    ligne_droite: false           # À RENSEIGNER
+
+  "4-iso Pwr_traction MaV_statique":
+    type: "repetabilite"          # TYPE À CONFIRMER — retenu car essai « statique »
+    ligne_droite: false           # À RENSEIGNER
+
+  "5-Décollage en pente":
+    type: "dynamique"
+    ligne_droite: false           # À RENSEIGNER
+
+  "6-iso Pwr_traction MaV_dynamique":
+    type: "dynamique"
+    ligne_droite: false           # À RENSEIGNER
+
+  "7-WLTC":
+    type: "dynamique"
+    ligne_droite: false           # À RENSEIGNER
+
+# =============================================================================
+# HYPOTHÈSES DE TRAITEMENT
+# Ces valeurs sont reprises telles quelles dans le § « Hypothèses » du rapport.
+# =============================================================================
+
+# --- Détection des paliers stabilisés ---------------------------------------
+paliers:
+  duree_palier_s: 2.0                  # durée minimale d'une plage stabilisée
+  tolerance_stab_pc_pe: 0.5            # écart-type max du couple de référence dans la fenêtre
+  fraction_finale: 0.5                 # part finale du palier effectivement moyennée
+  ecart_min_paliers_pc_pe: 1.0         # écart minimal entre deux paliers distincts
+  tolerance_appariement_pc_pe: 1.0     # appariement montée/descente et regroupement des répétitions
+
+# --- Recalage temporel par intercorrélation ---------------------------------
+intercorrelation:
+  retard_max_ms: 500.0                 # bornes de recherche du retard
+  passe_haut_Hz: 0.2                   # null pour désactiver le filtrage préalable
+  seuil_activite_pc_pe: 2.0            # écart-type mini du couple de référence pour juger « dynamique »
+  fenetre_activite_s: 1.0
+
+# --- Relevés de zéro --------------------------------------------------------
+zero:
+  duree_fenetre_s: 5.0
+  seuil_couple_ref_pc_pe: 1.0
+  seuil_regime: 20.0                   # unité du canal régime ; null pour ignorer ce critère
+  fraction_bord: 0.25                  # le zéro « début » doit tomber dans les 25 % initiaux
+
+# --- Sensibilité thermique --------------------------------------------------
+thermique:
+  amplitude_min_C: 5.0                 # en deçà, la pente est jugée non identifiable
+  # Plage de température rencontrée EN SERVICE, utilisée uniquement pour convertir
+  # la sensibilité thermique en contribution au bilan d'incertitude.
+  # null → contribution exclue et incertitude annoncée comme minorant.
+  plage_service_C: null                # À RENSEIGNER
+
+# --- Seuils de rédaction de la conclusion qualitative -----------------------
+# Ces seuils ne servent qu'à choisir la formulation (offset / gain /
+# synchronisation / écart de modèle) ; ils n'entrent dans aucun calcul.
+diagnostic:
+  seuil_offset_pc_pe: 0.5
+  seuil_gain_pc: 1.0
+  seuil_retard_ms: 5.0
+  gain_rms_recalage: 0.30
+  seuil_correlation_point_fct: 0.5

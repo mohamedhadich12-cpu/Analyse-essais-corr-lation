@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Configuration réelle (peut contenir des chemins et des noms de canaux internes)
+config/correlation.yaml
+
+# Sorties d'analyse : régénérables, ne pas versionner
+sortie/
+resultats/
+
+# Données d'essai : ne JAMAIS versionner les acquisitions brutes
+*.mf4
+*.mdf
+*.dat
