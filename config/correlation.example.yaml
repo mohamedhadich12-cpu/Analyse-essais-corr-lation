@@ -98,9 +98,18 @@ essais:
     ligne_droite: false           # À RENSEIGNER
     groupe_remontage: null        # À RENSEIGNER (ex. "apres")
 
+  # Départ arrêté sur 1 km : accélération pleine charge depuis l'arrêt.
+  # `dynamique` — le transitoire de décollage est la sollicitation la plus
+  # franche de la campagne, donc le meilleur support d'identification du retard
+  # par intercorrélation (front de couple très raide, pic de corrélation étroit).
   "3-4_1000M_DA":
-    type: "dynamique"             # TYPE À CONFIRMER (non précisé lors du cadrage)
-    ligne_droite: false           # À RENSEIGNER
+    type: "dynamique"
+    # Essai en ligne droite : le résidu gauche − droite est ici exploitable
+    # comme indicateur de redondance, indépendant de la référence banc.
+    # ⚠️ À repasser à false si le départ s'accompagne de patinage ou d'une
+    # intervention de l'antipatinage : l'écart entre voies serait alors
+    # physique (report de couple réel) et non métrologique.
+    ligne_droite: true
 
   "4-iso Pwr_traction MaV_statique":
     type: "repetabilite"          # TYPE À CONFIRMER — retenu car essai « statique »
