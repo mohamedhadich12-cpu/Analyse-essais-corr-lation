@@ -1,0 +1,17 @@
+# Thème de l'interface — mêmes jetons de couleur que les figures PNG, pour que
+# l'écran et le rapport se lisent comme un seul système visuel.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"          # bleu série 1
+backgroundColor = "#fcfcfb"       # fond de tracé
+secondaryBackgroundColor = "#f3f2ee"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+# Interface strictement locale : aucune écoute au-delà de la machine.
+address = "localhost"
+headless = false

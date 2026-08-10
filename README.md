@@ -41,7 +41,35 @@ Le générateur fabrique une arborescence d'essais **synthétiques à vérité c
 les tests vérifient que le pipeline retrouve bien chacune de ces valeurs. Aucun
 chiffre issu de ces fichiers ne doit figurer dans le rapport.
 
-## Utilisation
+## Utilisation — interface graphique (recommandé)
+
+```bash
+python scripts/03_interface.py
+```
+
+Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Cinq onglets
+suivent le déroulé de l'analyse :
+
+| Onglet | Ce qu'on y fait |
+|---|---|
+| **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
+| **2 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Un bouton recopie le mapping d'un dossier vers les autres, en ne gardant que les canaux qui y existent réellement |
+| **3 · Essais** | type d'essai, ligne droite, groupe de remontage |
+| **4 · Hypothèses** | toutes les bornes de traitement, et les deux saisies utilisateur |
+| **5 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
+
+L'interface **ne contient aucun traitement** : elle assemble une configuration,
+appelle la même bibliothèque que la ligne de commande et affiche ce qui en sort.
+La configuration se télécharge en `.yaml` et rejoue à l'identique :
+
+```bash
+python scripts/02_analyse.py --config correlation.yaml
+```
+
+Un test le vérifie explicitement — écran et ligne de commande ne sont pas deux
+chemins de calcul.
+
+## Utilisation — ligne de commande
 
 ### Étape 1 — inventorier les canaux
 
@@ -130,8 +158,10 @@ manquante.
 
 ```
 config/correlation.example.yaml   configuration commentée, à copier
+.streamlit/config.toml            thème de l'interface (mêmes couleurs que les figures)
 scripts/01_inventaire.py          étape 1 : inventaire des canaux
 scripts/02_analyse.py             étapes 2-3 : traitements, rapport, figures
+scripts/03_interface.py           lance l'interface graphique locale
 src/amdec_correlation/
   config.py       chargement et validation ; toutes les hypothèses de traitement
   io_mdf.py       lecture seule MDF4, rééchantillonnage sur base de temps commune
@@ -140,10 +170,14 @@ src/amdec_correlation/
   graphiques.py   figures PNG (charte : une couleur = une entité, marques fines)
   rapport.py      rédaction du Markdown
   analyse.py      orchestration par type d'essai
+  interface/
+    app.py        page Streamlit (affichage uniquement)
+    etat.py       assemblage de la configuration, sans dépendance à Streamlit
 tests/
   generer_mf4_synthetique.py  arborescence synthétique à vérité connue
   test_metriques.py           validation des formules
   test_bout_en_bout.py        validation du pipeline complet
+  test_interface.py           logique de l'interface, sans lancer Streamlit
 ```
 
 ## Bases de temps
