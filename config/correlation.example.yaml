@@ -111,8 +111,19 @@ essais:
     # physique (report de couple réel) et non métrologique.
     ligne_droite: true
 
+  # Points stabilisés à iso-puissance, traction en marche avant.
+  # `repetabilite` — traité comme une série de points stabilisés.
+  #
+  # ⚠️ À iso-puissance, le couple varie d'un point à l'autre (il suit
+  # l'inverse du régime) : deux points d'un même relevé ne sont donc PAS au
+  # même couple de référence. La répétabilité n'est calculable que si le
+  # dossier contient plusieurs relevés couvrant les mêmes points de
+  # fonctionnement — le pipeline regroupe les paliers par niveau de couple à
+  # travers tous les fichiers du dossier. Avec un seul relevé, il annoncera
+  # « aucun niveau de couple de référence n'est répété au moins 2 fois »,
+  # et l'essai n'alimentera que la régression du § détail.
   "4-iso Pwr_traction MaV_statique":
-    type: "repetabilite"          # TYPE À CONFIRMER — retenu car essai « statique »
+    type: "repetabilite"
     ligne_droite: false           # À RENSEIGNER
 
   "5-Décollage en pente":
