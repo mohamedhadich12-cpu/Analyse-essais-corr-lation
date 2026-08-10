@@ -3,6 +3,24 @@
 #
 # Installation :  python -m pip install -r requirements.txt
 #
+# ---------------------------------------------------------------------------
+# VERSION DE PYTHON : 3.10 à 3.13
+# ---------------------------------------------------------------------------
+# asammdf 8 dépend de `zstd`, un module C qui ne publie de wheels Windows que
+# jusqu'à cp313. Sur Python 3.14 ou plus récent, pip tente de le COMPILER et
+# échoue sur :
+#     error: Microsoft Visual C++ 14.0 or greater is required
+# Ce n'est pas un problème de pip ni de proxy : c'est l'absence de binaire
+# précompilé pour cette version de Python.
+#
+# Sous Windows, créer l'environnement avec une version prise en charge :
+#     py -0                      (liste les versions installées)
+#     py -3.13 -m venv .venv
+#
+# Rétrograder asammdf ne résout PAS le problème : les versions antérieures
+# épinglent numpy<2.0, qui n'a pas non plus de wheels au-delà de cp312.
+# ---------------------------------------------------------------------------
+#
 # Remarque : asammdf >= 8 dépend de `cffi`. Si l'import d'asammdf échoue avec
 # "No module named '_cffi_backend'", réinstaller cffi :
 #     python -m pip install --force-reinstall cffi

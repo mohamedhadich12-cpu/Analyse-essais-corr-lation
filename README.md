@@ -22,9 +22,19 @@ seule sur les `.mf4`. Rien dans ce dépôt ne contient de données d'essai
 
 ## Installation
 
-```bash
+**Python 3.10 à 3.13.** `asammdf` dépend de `zstd`, dont les wheels Windows
+s'arrêtent à cp313 : sur Python 3.14+, pip tente de compiler le module C et
+échoue sur `Microsoft Visual C++ 14.0 or greater is required`. Sous Windows :
+
+```powershell
+py -0                      # liste les versions installées
+py -3.13 -m venv .venv     # créer l'environnement avec une version prise en charge
+.venv\Scripts\activate
 python -m pip install -r requirements.txt
 ```
+
+Rétrograder `asammdf` ne contourne pas le problème : ses versions antérieures
+épinglent `numpy<2.0`, qui n'a pas non plus de wheels au-delà de cp312.
 
 > Si l'import d'`asammdf` échoue avec `No module named '_cffi_backend'` :
 > `python -m pip install --force-reinstall cffi`
