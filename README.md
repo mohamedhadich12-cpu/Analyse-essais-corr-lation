@@ -75,7 +75,7 @@ Puis renseigner, en s'appuyant sur le rapport d'inventaire, tout ce qui est marq
 | `canaux:` | les libellés réels diffèrent d'une campagne à l'autre |
 | `essais.<dossier>.type` | `balayage`, `repetabilite` ou `dynamique` — détermine le traitement |
 | `essais.<dossier>.ligne_droite` | conditionne l'exploitation du résidu gauche − droite : hors ligne droite, cet écart est physique et non métrologique |
-| `essais.<dossier>.groupe_remontage` | il faut **deux** étiquettes distinctes pour que la répétabilité après remontage existe |
+| `remontage.realise` / `essais.<dossier>.groupe_remontage` | il faut **deux** étiquettes distinctes pour que la répétabilité après remontage existe. `remontage.realise: false` déclare qu'aucune dépose/repose n'a eu lieu : le rapport motive alors la non-calculabilité par « grandeur non définie » et non par « clé non configurée » |
 | `comparaison.incertitude_reference_k1_Nm` | vient du certificat d'étalonnage du banc, pas des acquisitions |
 | `thermique.plage_service_C` | plage de température en service, pour convertir la sensibilité thermique en contribution d'incertitude |
 

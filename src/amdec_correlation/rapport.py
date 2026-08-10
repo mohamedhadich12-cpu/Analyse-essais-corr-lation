@@ -34,6 +34,16 @@ def _motif(*candidats: str | None) -> str:
     return "grandeur non disponible"
 
 
+def _majuscule(texte: str) -> str:
+    """Met la première lettre en capitale, sans toucher au reste du texte.
+
+    `str.capitalize()` mettrait tout le reste en minuscules : il abîmerait les
+    sigles (PE, CRC, RMS) et les débuts de phrase des motifs qui en comportent
+    plusieurs.
+    """
+    return texte[:1].upper() + texte[1:] if texte else texte
+
+
 # ---------------------------------------------------------------------------
 # Tableau récapitulatif
 # ---------------------------------------------------------------------------
@@ -64,7 +74,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             balayages[0].erreurs[0] if balayages and balayages[0].erreurs else None,
             "aucun essai déclaré de type `balayage` en configuration",
         )
-        lignes.append(("Offset b (% PE)", NON_CALCULABLE, motif.capitalize() + "."))
+        lignes.append(("Offset b (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 2. Erreur de sensibilité
     if reg:
@@ -108,7 +118,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             balayages[0].hysteresis.non_calculable if balayages and balayages[0].hysteresis else None,
             "aucun essai de balayage exploitable",
         )
-        lignes.append(("Hystérésis (% PE)", NON_CALCULABLE, motif.capitalize() + "."))
+        lignes.append(("Hystérésis (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 5. Répétabilité après remontage
     rep_rem = campagne.repetabilite_remontage
@@ -133,7 +143,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             if rep_simple else ""
         )
         lignes.append(("Répétabilité après remontage (% PE)", NON_CALCULABLE,
-                       motif.capitalize() + "." + complement))
+                       _majuscule(motif) + "." + complement))
 
     # 6. Retard temporel
     retards = [
@@ -164,7 +174,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             ],
             "aucun essai déclaré de type `dynamique` en configuration",
         )
-        lignes.append(("Retard temporel (ms)", NON_CALCULABLE, motif.capitalize() + "."))
+        lignes.append(("Retard temporel (ms)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 7. Sensibilité thermique
     th = campagne.thermique_globale
@@ -185,7 +195,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         ))
     else:
         lignes.append(("Sensibilité thermique (% PE pour 10 °C)", NON_CALCULABLE,
-                       _motif(th.non_calculable if th else None).capitalize() + "."))
+                       _majuscule(_motif(th.non_calculable if th else None)) + "."))
 
     # 8. Dérive de zéro
     derives = [
@@ -206,7 +216,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             *[d.non_calculable for e in campagne.essais for _, d in e.derives_zero],
             "aucun relevé de zéro identifiable",
         )
-        lignes.append(("Dérive de zéro sur cycle (% PE)", NON_CALCULABLE, motif.capitalize() + "."))
+        lignes.append(("Dérive de zéro sur cycle (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 9. Incertitude élargie
     inc = campagne.incertitude
@@ -225,7 +235,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         ))
     else:
         lignes.append(("Incertitude élargie résultante (k=2)", NON_CALCULABLE,
-                       _motif(inc.non_calculable if inc else None).capitalize() + "."))
+                       _majuscule(_motif(inc.non_calculable if inc else None)) + "."))
 
     entete = "| Grandeur | Valeur mesurée | Commentaire |\n|---|---|---|\n"
     corps = "".join(f"| {g} | {v} | {c} |\n" for g, v, c in lignes)

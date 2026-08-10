@@ -36,11 +36,23 @@ comparaison:
   # des transmissions. 1.0 = référence prise au même point (cas de cette campagne).
   rapport_reduction: 1.0
 
-  # Incertitude-type (k=1) du moyen de référence banc, en N·m.
+  # Incertitude-type (k=1) du moyen de référence banc, en N·m. — voir plus bas
+  # aussi la section `remontage`.
   # Elle ne peut PAS être déduite des acquisitions : sans elle, la contribution
   # est exclue du bilan et l'incertitude élargie annoncée est un MINORANT.
   # À reprendre du certificat d'étalonnage du banc GMP.
   incertitude_reference_k1_Nm: null   # À RENSEIGNER
+
+# --- Démontage / remontage de la chaîne de mesure ----------------------------
+# `realise: false` déclare qu'AUCUN démontage/remontage n'a eu lieu au cours de
+# la campagne. La « répétabilité après remontage » reste alors non calculable,
+# mais le rapport le motive correctement : la grandeur n'est pas DÉFINIE ici,
+# elle n'a pas été oubliée en configuration. La nuance compte dans un rapport
+# relu par des tiers.
+# Mettre `true` (et renseigner deux `groupe_remontage` distincts) le jour où une
+# dépose/repose est intercalée entre deux séries de points stabilisés.
+remontage:
+  realise: false
 
 # --- Acquisition -------------------------------------------------------------
 acquisition:
@@ -91,17 +103,19 @@ canaux:
 #
 # groupe_remontage : étiquette libre ("avant" / "apres" ...). Il en faut au moins
 #   DEUX distinctes dans la campagne pour que la « répétabilité après remontage »
-#   soit calculable ; sans cela elle sera déclarée non calculable.
+#   soit calculable. Aucun remontage n'ayant été réalisé sur cette campagne
+#   (cf. `remontage.realise` plus bas), la grandeur restera non calculable :
+#   c'est une décision actée, pas un oubli de configuration.
 essais:
   "1-Balayage Couple":
     type: "balayage"
     ligne_droite: true            # banc chargé symétriquement
-    groupe_remontage: null        # À RENSEIGNER (ex. "avant")
+    groupe_remontage: null        # aucun remontage sur la campagne
 
   "2-CPC 20°C":
     type: "repetabilite"
     ligne_droite: true            # banc chargé symétriquement
-    groupe_remontage: null        # À RENSEIGNER (ex. "apres")
+    groupe_remontage: null        # aucun remontage sur la campagne
 
   # Départ arrêté sur 1 km : accélération pleine charge depuis l'arrêt.
   # `dynamique` — le transitoire de décollage est la sollicitation la plus

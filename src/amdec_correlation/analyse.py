@@ -384,6 +384,16 @@ def _repetabilite_remontage(
             groupes.setdefault(etiquette, []).extend(e.paliers)
 
     if len(groupes) < 2:
+        # Deux situations très différentes mènent à « non calculable », et le
+        # rapport ne doit pas les confondre : une grandeur qui n'existe pas pour
+        # cette campagne n'est pas une grandeur qu'on a oublié de configurer.
+        if cfg.remontage_realise is False:
+            return None, (
+                "répétabilité après remontage non calculable : aucun démontage ni remontage "
+                "de la chaîne de mesure n'a été réalisé au cours de la campagne. La grandeur "
+                "n'est pas définie ici — elle n'est pas manquante, et aucune valeur ne peut "
+                "lui être substituée"
+            )
         return None, (
             "répétabilité après remontage non calculable : "
             f"{len(groupes)} groupe(s) de remontage déclaré(s) en configuration "

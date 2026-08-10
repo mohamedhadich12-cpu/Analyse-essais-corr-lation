@@ -233,6 +233,13 @@ class Config:
     rapport_reduction: float
     incertitude_reference_k1_Nm: float | None
     frequence_Hz: float
+    # Un démontage/remontage a-t-il été réalisé au cours de la campagne ?
+    # `False` distingue, dans le rapport, une grandeur **non définie** (aucun
+    # remontage effectué, il n'y a rien à mesurer) d'une grandeur simplement
+    # **non configurée** (remontage effectué mais groupes non déclarés) — les
+    # deux mènent à « non calculable », mais ne se justifient pas pareil.
+    # `None` = non précisé.
+    remontage_realise: bool | None
     essais: tuple[DeclarationEssai, ...]
     _canaux_defaut: dict[str, Any]
     _canaux_par_dossier: dict[str, dict[str, Any]]
@@ -330,6 +337,16 @@ class Config:
 
         u_ref = comparaison.get("incertitude_reference_k1_Nm")
 
+        remontage = brut.get("remontage") or {}
+        if not isinstance(remontage, dict):
+            raise ErreurConfig("remontage doit être un dictionnaire (clé `realise`).")
+        inconnues = set(remontage) - {"realise"}
+        if inconnues:
+            raise ErreurConfig(
+                f"remontage : clé(s) inconnue(s) {sorted(inconnues)}. Clé acceptée : ['realise']."
+            )
+        realise = remontage.get("realise")
+
         return cls(
             racine=Path(str(requis("racine_donnees"))).expanduser(),
             dossier_sortie=Path(str(brut.get("dossier_sortie", "sortie"))).expanduser(),
@@ -338,6 +355,7 @@ class Config:
             rapport_reduction=float(comparaison.get("rapport_reduction", 1.0)),
             incertitude_reference_k1_Nm=None if u_ref is None else float(u_ref),
             frequence_Hz=frequence,
+            remontage_realise=None if realise is None else bool(realise),
             essais=tuple(essais),
             _canaux_defaut=dict(defaut),
             _canaux_par_dossier=par_dossier,

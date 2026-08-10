@@ -338,3 +338,42 @@ def test_un_seul_groupe_de_remontage_rend_la_grandeur_non_calculable(tmp_path):
     assert "groupe(s) de remontage" in resultats.motif_remontage
     texte = R.rediger(resultats)
     assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
+
+
+def test_campagne_sans_remontage_est_motivee_comme_non_definie(tmp_path):
+    """Une grandeur non DÉFINIE ne doit pas être motivée comme non CONFIGURÉE.
+
+    Sans remontage dans la campagne, le rapport doit dire qu'il n'y a rien à
+    mesurer — pas qu'une clé de configuration manque, ce qui se lirait comme un
+    oubli de l'analyste.
+    """
+    racine = tmp_path / "donnees"
+    generer(racine)
+    cfg = _configuration(racine, tmp_path / "sortie")
+    cfg.essais = tuple(
+        e for e in cfg.essais if e.dossier != "2-CPC 20°C apres remontage"
+    )
+    cfg.remontage_realise = False
+
+    resultats = analyser(cfg)
+    assert resultats.repetabilite_remontage is None
+    motif = resultats.motif_remontage
+    assert "aucun démontage ni remontage" in motif
+    assert "configuration" not in motif
+    texte = R.rediger(resultats)
+    assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
+    # La répétabilité sans remontage doit rester citée en repère, distinguée.
+    assert "ce n'est pas la même grandeur" in texte
+
+
+def test_le_drapeau_ne_prime_pas_sur_des_donnees_de_remontage_reelles(tmp_path):
+    """Si deux groupes sont réellement déclarés, la grandeur se calcule."""
+    racine = tmp_path / "donnees"
+    generer(racine)
+    cfg = _configuration(racine, tmp_path / "sortie")
+    cfg.remontage_realise = False  # contredit par les groupes déclarés
+
+    resultats = analyser(cfg)
+    assert resultats.motif_remontage is None
+    assert resultats.repetabilite_remontage is not None
+    assert resultats.repetabilite_remontage.non_calculable is None
