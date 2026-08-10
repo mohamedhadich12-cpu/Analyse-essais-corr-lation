@@ -80,9 +80,14 @@ canaux:
 #   repetabilite  → dispersion à couple de référence constant
 #   dynamique     → recalage temporel par intercorrélation
 #
-# ligne_droite : true UNIQUEMENT si l'essai est en ligne droite sans
-#   sollicitation différentielle. C'est la condition pour que le résidu
+# ligne_droite : true UNIQUEMENT si les deux transmissions voient le même couple
+#   par construction pendant l'essai — c'est la condition pour que le résidu
 #   gauche − droite soit un indicateur métrologique et non un écart physique réel.
+#   Sur banc GMP, cela revient à : les deux sorties sont-elles chargées
+#   symétriquement ? Ici oui sur toute la campagne, d'où `true` partout.
+#   À repasser à false sur tout essai sollicitant volontairement le
+#   différentiel (sol dissymétrique, différentiel piloté), ou s'accompagnant
+#   de patinage avec intervention de l'antipatinage d'un seul côté.
 #
 # groupe_remontage : étiquette libre ("avant" / "apres" ...). Il en faut au moins
 #   DEUX distinctes dans la campagne pour que la « répétabilité après remontage »
@@ -90,12 +95,12 @@ canaux:
 essais:
   "1-Balayage Couple":
     type: "balayage"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
     groupe_remontage: null        # À RENSEIGNER (ex. "avant")
 
   "2-CPC 20°C":
     type: "repetabilite"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
     groupe_remontage: null        # À RENSEIGNER (ex. "apres")
 
   # Départ arrêté sur 1 km : accélération pleine charge depuis l'arrêt.
@@ -104,11 +109,9 @@ essais:
   # par intercorrélation (front de couple très raide, pic de corrélation étroit).
   "3-4_1000M_DA":
     type: "dynamique"
-    # Essai en ligne droite : le résidu gauche − droite est ici exploitable
-    # comme indicateur de redondance, indépendant de la référence banc.
-    # ⚠️ À repasser à false si le départ s'accompagne de patinage ou d'une
-    # intervention de l'antipatinage : l'écart entre voies serait alors
-    # physique (report de couple réel) et non métrologique.
+    # Départ arrêté : symétrique par définition, et le banc charge les deux
+    # sorties symétriquement. ⚠️ C'est l'essai le plus exposé au patinage :
+    # en cas d'intervention de l'antipatinage d'un seul côté, repasser à false.
     ligne_droite: true
 
   # Points stabilisés à iso-puissance, traction en marche avant.
@@ -124,19 +127,19 @@ essais:
   # et l'essai n'alimentera que la régression du § détail.
   "4-iso Pwr_traction MaV_statique":
     type: "repetabilite"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
 
   "5-Décollage en pente":
     type: "dynamique"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
 
   "6-iso Pwr_traction MaV_dynamique":
     type: "dynamique"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
 
   "7-WLTC":
     type: "dynamique"
-    ligne_droite: false           # À RENSEIGNER
+    ligne_droite: true            # banc chargé symétriquement
 
 # =============================================================================
 # HYPOTHÈSES DE TRAITEMENT
