@@ -47,6 +47,8 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
 
     for avertissement in cfg.verifier_mapping():
         print(f"  [mapping] {avertissement}", file=sys.stderr)
+    for avertissement in cfg.verifier_saisies():
+        print(f"  [saisie]  {avertissement}", file=sys.stderr)
 
     campagne = A.analyser(cfg)
     chemin = R.ecrire(campagne)

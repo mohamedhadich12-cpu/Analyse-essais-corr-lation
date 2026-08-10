@@ -485,7 +485,10 @@ def rediger(campagne: ResultatCampagne) -> str:
     avertissements = (
         "\n".join(f"- {a}" for a in campagne.avertissements)
         if campagne.avertissements
-        else "_Aucun : tous les canaux attendus sont mappés sur tous les essais déclarés._"
+        else (
+            "_Aucun : tous les canaux attendus sont mappés sur tous les essais déclarés, "
+            "et toutes les saisies utilisateur sont renseignées._"
+        )
     )
     liste_figures = (
         "\n".join(f"- `figures/{f.name}`" for f in figures)
@@ -520,7 +523,7 @@ Le **résidu** est défini partout comme `couple_mesuré − couple_référence`
 ## 10.6 Hypothèses de traitement
 
 {section_hypotheses(campagne)}
-## 10.7 Avertissements de mapping
+## 10.7 Avertissements (mapping et saisies utilisateur)
 
 {avertissements}
 

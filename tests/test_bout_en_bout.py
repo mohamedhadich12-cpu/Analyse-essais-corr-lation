@@ -340,6 +340,35 @@ def test_un_seul_groupe_de_remontage_rend_la_grandeur_non_calculable(tmp_path):
     assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
 
 
+def test_les_saisies_utilisateur_manquantes_sont_signalees(tmp_path):
+    """L'incertitude du banc et la plage de service sont des saisies utilisateur.
+
+    Elles ne peuvent pas être déduites des acquisitions : leur absence doit être
+    visible dès l'exécution, et le bilan doit s'annoncer comme un minorant.
+    """
+    racine = tmp_path / "donnees"
+    generer(racine)
+    cfg = _configuration(racine, tmp_path / "sortie")
+    cfg.incertitude_reference_k1_Nm = None
+    object.__setattr__(cfg.thermique, "plage_service_C", None)
+
+    saisies = cfg.verifier_saisies()
+    assert any("incertitude_reference_k1_Nm" in a for a in saisies)
+    assert any("plage_service_C" in a for a in saisies)
+
+    resultats = analyser(cfg)
+    assert resultats.incertitude.minorant is True
+    assert any("incertitude du moyen de référence" in e for e in resultats.incertitude.exclusions)
+    texte = R.rediger(resultats)
+    assert "MINORANT" in texte or "minorant" in texte
+
+
+def test_aucune_saisie_signalee_quand_tout_est_renseigne(campagne):
+    resultats, cfg, _, _ = campagne
+    assert cfg.verifier_saisies() == []
+    assert resultats.incertitude.minorant is False
+
+
 def test_campagne_sans_remontage_est_motivee_comme_non_definie(tmp_path):
     """Une grandeur non DÉFINIE ne doit pas être motivée comme non CONFIGURÉE.
 

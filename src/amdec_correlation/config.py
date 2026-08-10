@@ -368,6 +368,31 @@ class Config:
             diagnostic=_construire(ParamsDiagnostic, brut.get("diagnostic"), "diagnostic"),
         )
 
+    def verifier_saisies(self) -> list[str]:
+        """Signale les valeurs qui relèvent d'une saisie utilisateur et manquent.
+
+        Ces grandeurs caractérisent le moyen d'essai ou le domaine d'emploi :
+        aucun traitement du signal ne peut les produire. Leur absence n'est pas
+        une erreur — le bilan reste calculé, annoncé comme minorant — mais elle
+        doit être visible dès l'exécution, et pas seulement à la relecture du
+        rapport.
+        """
+        avertissements: list[str] = []
+        if self.incertitude_reference_k1_Nm is None:
+            avertissements.append(
+                "`comparaison.incertitude_reference_k1_Nm` non renseignée (saisie utilisateur, "
+                "à reprendre du certificat d'étalonnage du banc GMP ; si le certificat donne "
+                "une incertitude élargie à k=2, saisir la moitié) → contribution exclue, "
+                "l'incertitude élargie sera un MINORANT."
+            )
+        if self.thermique.plage_service_C is None:
+            avertissements.append(
+                "`thermique.plage_service_C` non renseignée (saisie utilisateur : domaine "
+                "d'emploi, que l'excursion constatée sur les essais ne peut pas remplacer) "
+                "→ contribution thermique exclue du bilan d'incertitude."
+            )
+        return avertissements
+
     def verifier_mapping(self) -> list[str]:
         """Retourne la liste des avertissements de mapping (canaux non renseignés).
 

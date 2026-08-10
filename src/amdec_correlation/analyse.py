@@ -597,7 +597,9 @@ def analyser(cfg: Config) -> ResultatCampagne:
     dossier_figures = cfg.dossier_sortie / "figures"
     dossier_figures.mkdir(parents=True, exist_ok=True)
 
-    campagne = ResultatCampagne(config=cfg, avertissements=cfg.verifier_mapping())
+    campagne = ResultatCampagne(
+        config=cfg, avertissements=cfg.verifier_mapping() + cfg.verifier_saisies()
+    )
     for essai in cfg.essais:
         campagne.essais.append(traiter_essai(essai, cfg, dossier_figures))
 

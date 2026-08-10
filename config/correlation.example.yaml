@@ -36,12 +36,20 @@ comparaison:
   # des transmissions. 1.0 = référence prise au même point (cas de cette campagne).
   rapport_reduction: 1.0
 
-  # Incertitude-type (k=1) du moyen de référence banc, en N·m. — voir plus bas
-  # aussi la section `remontage`.
-  # Elle ne peut PAS être déduite des acquisitions : sans elle, la contribution
-  # est exclue du bilan et l'incertitude élargie annoncée est un MINORANT.
-  # À reprendre du certificat d'étalonnage du banc GMP.
-  incertitude_reference_k1_Nm: null   # À RENSEIGNER
+  # Incertitude-type (k=1) du moyen de référence banc, en N·m.
+  #
+  # SAISIE UTILISATEUR, par construction. Cette valeur caractérise le banc, pas
+  # les acquisitions : aucun traitement du signal ne peut la produire, et le
+  # pipeline ne tentera jamais de l'estimer. Elle se lit sur le certificat
+  # d'étalonnage du banc GMP (ou dans son dossier de raccordement métrologique).
+  #
+  # Laissée à `null`, la contribution est simplement exclue du bilan, qui est
+  # alors explicitement annoncé comme un MINORANT, avec la liste des exclusions.
+  # Le rapport reste donc juste — seulement moins complet.
+  #
+  # Attention à l'unité et au facteur : c'est une incertitude-TYPE (k=1). Si le
+  # certificat donne une incertitude élargie U à k=2, saisir U/2.
+  incertitude_reference_k1_Nm: null
 
 # --- Démontage / remontage de la chaîne de mesure ----------------------------
 # `realise: false` déclare qu'AUCUN démontage/remontage n'a eu lieu au cours de
@@ -187,8 +195,12 @@ thermique:
   amplitude_min_C: 5.0                 # en deçà, la pente est jugée non identifiable
   # Plage de température rencontrée EN SERVICE, utilisée uniquement pour convertir
   # la sensibilité thermique en contribution au bilan d'incertitude.
+  #
+  # SAISIE UTILISATEUR : c'est un choix de domaine d'emploi, pas une grandeur
+  # mesurable. L'excursion thermique constatée sur les essais ne peut pas en
+  # tenir lieu — elle décrit la campagne, pas les conditions de service.
   # null → contribution exclue et incertitude annoncée comme minorant.
-  plage_service_C: null                # À RENSEIGNER
+  plage_service_C: null
 
 # --- Seuils de rédaction de la conclusion qualitative -----------------------
 # Ces seuils ne servent qu'à choisir la formulation (offset / gain /
