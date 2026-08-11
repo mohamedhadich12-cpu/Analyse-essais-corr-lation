@@ -26,7 +26,7 @@ from asammdf import MDF
 
 from .config import MappingCanaux
 
-EXTENSIONS_MDF = (".mf4", ".mdf", ".MF4", ".MDF")
+EXTENSIONS_MDF = (".mf4", ".mdf")
 
 
 class CanalIntrouvable(KeyError):
@@ -55,15 +55,14 @@ def ouvrir_mdf(chemin: str | Path) -> Iterator[MDF]:
 
 
 def lister_fichiers(dossier: str | Path, max_fichiers: int | None = None) -> list[Path]:
-    """Liste triée des acquisitions d'un sous-dossier d'essai (récursif)."""
-    dossier = Path(dossier)
-    if not dossier.is_dir():
-        return []
-    fichiers = sorted(
-        {p for ext in EXTENSIONS_MDF for p in dossier.rglob(f"*{ext}")},
-        key=lambda p: p.name.lower(),
-    )
-    return fichiers[:max_fichiers] if max_fichiers else fichiers
+    """Acquisitions d'un sous-dossier, tous formats enregistrés confondus.
+
+    Conservé ici par commodité ; l'implémentation vit dans `lecteurs`, qui seul
+    connaît la liste des formats pris en charge.
+    """
+    from .lecteurs import lister_fichiers as _lister
+
+    return _lister(dossier, max_fichiers)
 
 
 # ---------------------------------------------------------------------------
@@ -337,3 +336,28 @@ def resumer_etats(signaux: SignauxEssai) -> dict[str, dict[str, float]]:
             str(v): round(100.0 * c / total, 3) for v, c in zip(uniques, comptes)
         }
     return resume
+
+
+# ---------------------------------------------------------------------------
+# Déclaration du format auprès de l'aiguillage
+# ---------------------------------------------------------------------------
+
+def _enregistrer() -> None:
+    """Déclare MDF4 comme format lisible.
+
+    L'import est local pour éviter la circularité : `lecteurs` importe ce module
+    afin de provoquer cet enregistrement.
+    """
+    from .lecteurs import Lecteur, enregistrer
+
+    enregistrer(
+        Lecteur(
+            nom="MDF4 (ASAM)",
+            extensions=EXTENSIONS_MDF,
+            decrire=decrire_canaux,
+            charger=charger_signaux,
+        )
+    )
+
+
+_enregistrer()

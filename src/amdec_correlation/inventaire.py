@@ -22,7 +22,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .io_mdf import DescriptionCanal, decrire_canaux, lister_fichiers
+from .io_mdf import DescriptionCanal
+from .lecteurs import decrire_canaux, lister_fichiers
 
 # Motifs de repérage des candidats. Volontairement larges : mieux vaut proposer
 # plusieurs candidats à trancher que de rater le bon canal.

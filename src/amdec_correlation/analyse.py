@@ -27,13 +27,8 @@ import numpy as np
 
 from . import graphiques, metriques as M
 from .config import Config, DeclarationEssai
-from .io_mdf import (
-    ErreurChargement,
-    SignauxEssai,
-    charger_signaux,
-    lister_fichiers,
-    resumer_etats,
-)
+from .io_mdf import ErreurChargement, SignauxEssai, resumer_etats
+from .lecteurs import charger_signaux, lister_fichiers
 
 # Cadence de conservation des échantillons pour l'analyse thermique groupée :
 # la sensibilité thermique est une tendance lente, 10 Hz suffisent largement et
