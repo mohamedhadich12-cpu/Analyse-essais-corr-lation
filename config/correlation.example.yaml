@@ -76,23 +76,28 @@ acquisition:
 # déclarées non calculables, jamais estimées).
 canaux:
   defaut:
-    couple_mesure_gauche: null    # À RENSEIGNER depuis l'inventaire
-    couple_mesure_droite: null    # À RENSEIGNER
-    couple_reference: null        # À RENSEIGNER
-    regime: null                  # À RENSEIGNER
-    temperature: null             # À RENSEIGNER (arbre, capteur ou électronique rotor)
-    etat: []                      # canaux LED / CRC / erreurs, si présents
+    couple_mesure_gauche: null       # À RENSEIGNER depuis l'inventaire
+    couple_mesure_droite: null       # À RENSEIGNER
+
+    # Le banc GMP fournit DEUX voies de référence, une par sortie. Le mode de
+    # comparaison ci-dessus s'applique de la même façon aux voies mesurées et
+    # aux voies de référence : en « moyenne », (G+D)/2 mesuré est confronté à
+    # (G+D)/2 de référence.
+    couple_reference_gauche: null    # À RENSEIGNER
+    couple_reference_droite: null    # À RENSEIGNER
+    # Repli, uniquement si le banc ne fournit qu'une seule voie de référence.
+    # Ignoré dès que les deux voies ci-dessus sont renseignées.
+    couple_reference: null
+
+    regime: null                     # À RENSEIGNER
+    temperature: null                # À RENSEIGNER (arbre, capteur ou électronique rotor)
+    etat: []                         # canaux LED / CRC / erreurs, si présents
 
   par_dossier:
-    # Ne renseigner ici que ce qui diffère du bloc `defaut` ci-dessus.
-    # Si les libellés diffèrent d'un dossier à l'autre, tout redéclarer ici.
-    "1-Balayage Couple": {}
-    "2-CPC 20°C": {}
-    "3-4_1000M_DA": {}
-    "4-iso Pwr_traction MaV_statique": {}
-    "5-Décollage en pente": {}
-    "6-iso Pwr_traction MaV_dynamique": {}
-    "7-WLTC": {}
+    # Les libellés étant identiques sur toute la campagne, tout est déclaré une
+    # seule fois dans `defaut` ci-dessus et ce bloc reste vide.
+    # Ne renseigner ici que les dossiers dont les noms de canaux diffèrent.
+    {}
 
 # --- Déclaration des essais --------------------------------------------------
 # type :

@@ -24,7 +24,8 @@ def _canaux(**surcharges):
     base = {
         "couple_mesure_gauche": NOMS["gauche"],
         "couple_mesure_droite": NOMS["droite"],
-        "couple_reference": NOMS["reference"],
+        "couple_reference_gauche": NOMS["reference_gauche"],
+        "couple_reference_droite": NOMS["reference_droite"],
         "regime": NOMS["regime"],
         "temperature": NOMS["temperature"],
         "etat": [NOMS["etat"]],
@@ -85,10 +86,21 @@ def test_mapping_propose_retrouve_les_roles_depuis_les_libelles():
     mapping = E.mapping_propose(list(NOMS.values()))
     assert mapping["couple_mesure_gauche"] == NOMS["gauche"]
     assert mapping["couple_mesure_droite"] == NOMS["droite"]
-    assert mapping["couple_reference"] == NOMS["reference"]
+    assert mapping["couple_reference_gauche"] == NOMS["reference_gauche"]
+    assert mapping["couple_reference_droite"] == NOMS["reference_droite"]
     assert mapping["regime"] == NOMS["regime"]
     assert mapping["temperature"] == NOMS["temperature"]
     assert NOMS["etat"] in mapping["etat"]
+
+
+def test_les_voies_de_reference_ne_sont_pas_prises_pour_des_voies_mesurees():
+    """`Trq_Ref_BancGMP_G` porte « couple » et « gauche » : sans exclusion des
+    mots de référence, il serait proposé comme couple mesuré gauche."""
+    mapping = E.mapping_propose(list(NOMS.values()))
+    assert mapping["couple_mesure_gauche"] != NOMS["reference_gauche"]
+    assert mapping["couple_mesure_droite"] != NOMS["reference_droite"]
+    # Et une référence latéralisée ne doit pas remplir le rôle de voie unique.
+    assert mapping["couple_reference"] is None
 
 
 def test_mapping_propose_laisse_vide_ce_qu_il_ne_reconnait_pas():
@@ -110,7 +122,10 @@ def test_la_configuration_construite_est_acceptee_par_la_bibliotheque():
     assert cfg.pleine_echelle_Nm == 1500.0
     assert cfg.remontage_realise is False
     mapping = cfg.canaux_pour("1-Balayage Couple")
-    assert mapping.couple_reference == NOMS["reference"]
+    assert mapping.voies_couple_reference == (
+        NOMS["reference_gauche"], NOMS["reference_droite"]
+    )
+    assert mapping.a_reference is True
     assert mapping.etat == (NOMS["etat"],)
 
 
@@ -192,7 +207,22 @@ def test_etat_initial_propose_un_mapping_et_un_type_par_dossier(tmp_path):
     depart = E.etat_initial(inventaires)
     assert set(depart["canaux"]) == set(inventaires)
     assert depart["essais"]["1-Balayage Couple"]["type"] == "balayage"
-    assert depart["canaux"]["7-WLTC"]["couple_reference"] == NOMS["reference"]
+    assert depart["canaux"]["7-WLTC"]["couple_reference_gauche"] == NOMS["reference_gauche"]
+    # Les libellés étant identiques partout, le mapping commun doit être complet.
+    assert depart["canaux_communs"]["couple_reference_droite"] == NOMS["reference_droite"]
+    assert depart["canaux_communs"]["couple_mesure_gauche"] == NOMS["gauche"]
+
+
+def test_le_mapping_commun_produit_un_defaut_et_aucune_surcharge():
+    """Libellés uniques sur la campagne : un seul mapping, pas un par dossier."""
+    configuration = _construire(canaux_communs=_canaux(), canaux={})
+    assert configuration["canaux"]["par_dossier"] == {}
+    assert configuration["canaux"]["defaut"]["couple_reference_gauche"] == NOMS["reference_gauche"]
+
+    cfg, erreurs = E.valider(configuration)
+    assert erreurs == []
+    # Le mapping s'applique bien à l'essai déclaré, sans avoir été redéclaré.
+    assert cfg.canaux_pour("1-Balayage Couple").couple_mesure_gauche == NOMS["gauche"]
 
 
 def test_l_interface_produit_les_memes_resultats_que_la_ligne_de_commande(tmp_path):

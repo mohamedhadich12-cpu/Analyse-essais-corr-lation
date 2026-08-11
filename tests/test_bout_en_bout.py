@@ -14,6 +14,7 @@ import hashlib
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -53,7 +54,8 @@ def _configuration(racine: Path, sortie: Path) -> Config:
                 "defaut": {
                     "couple_mesure_gauche": NOMS["gauche"],
                     "couple_mesure_droite": NOMS["droite"],
-                    "couple_reference": NOMS["reference"],
+                    "couple_reference_gauche": NOMS["reference_gauche"],
+                    "couple_reference_droite": NOMS["reference_droite"],
                     "regime": NOMS["regime"],
                     "temperature": NOMS["temperature"],
                     "etat": [NOMS["etat"]],
@@ -338,6 +340,58 @@ def test_un_seul_groupe_de_remontage_rend_la_grandeur_non_calculable(tmp_path):
     assert "groupe(s) de remontage" in resultats.motif_remontage
     texte = R.rediger(resultats)
     assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
+
+
+def _pente_mesure_reference(donnees) -> float:
+    """Pente de mesuré vs référence.
+
+    C'est la bonne grandeur pour comparer deux modes : un rapport moyen
+    `mesure / référence` serait dominé par l'offset aux faibles couples.
+    """
+    return float(np.polyfit(donnees.reference, donnees.mesure, 1)[0])
+
+
+def test_le_mode_de_comparaison_s_applique_aux_deux_cotes(tmp_path):
+    """Mesuré et référence doivent être combinés de la même façon.
+
+    Le banc fournit deux voies de référence. En mode « somme », la référence
+    doit valoir refG + refD — sinon on comparerait une somme de voies mesurées à
+    une moyenne de voies de référence, et l'erreur de sensibilité afficherait un
+    facteur 2.
+    """
+    from amdec_correlation.analyse import preparer
+
+    racine = tmp_path / "donnees"
+    generer(racine)
+    fichier = next((racine / "1-Balayage Couple").glob("*.mf4"))
+
+    pentes = {}
+    for mode in ("moyenne", "somme", "gauche"):
+        cfg = _configuration(racine, tmp_path / "sortie")
+        cfg.mode_comparaison = mode
+        pentes[mode] = _pente_mesure_reference(
+            preparer(fichier, cfg, cfg.canaux_pour("1-Balayage Couple"))
+        )
+
+    assert pentes["somme"] == pytest.approx(pentes["moyenne"], rel=1e-6)
+    assert pentes["gauche"] == pytest.approx(pentes["moyenne"], rel=1e-3)
+    assert pentes["moyenne"] == pytest.approx(GAIN, abs=0.002)
+
+
+def test_une_reference_en_voie_unique_reste_acceptee(tmp_path):
+    """Repli documenté : un banc ne fournissant qu'une voie reste exploitable."""
+    from amdec_correlation.analyse import preparer
+
+    racine = tmp_path / "donnees"
+    generer(racine)
+    cfg = _configuration(racine, tmp_path / "sortie")
+    cfg._canaux_defaut["couple_reference"] = NOMS["reference_gauche"]
+    cfg._canaux_defaut["couple_reference_gauche"] = None
+    cfg._canaux_defaut["couple_reference_droite"] = None
+
+    fichier = next((racine / "1-Balayage Couple").glob("*.mf4"))
+    d = preparer(fichier, cfg, cfg.canaux_pour("1-Balayage Couple"))
+    assert _pente_mesure_reference(d) == pytest.approx(GAIN, abs=0.002)
 
 
 def test_les_saisies_utilisateur_manquantes_sont_signalees(tmp_path):

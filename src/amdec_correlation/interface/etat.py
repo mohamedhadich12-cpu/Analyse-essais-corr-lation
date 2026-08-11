@@ -24,10 +24,24 @@ CANAL_ABSENT = "— absent —"
 LIBELLES_CANAUX = {
     "couple_mesure_gauche": "Couple mesuré — transmission gauche",
     "couple_mesure_droite": "Couple mesuré — transmission droite",
-    "couple_reference": "Couple de référence — banc GMP",
+    "couple_reference_gauche": "Couple de référence banc GMP — gauche",
+    "couple_reference_droite": "Couple de référence banc GMP — droite",
+    "couple_reference": "Couple de référence banc GMP — voie unique (si pas de G/D)",
     "regime": "Régime / vitesse de rotation",
     "temperature": "Température (arbre, capteur ou électronique rotor)",
 }
+
+# Ordre d'affichage dans l'interface : les deux voies de référence d'abord, la
+# voie unique ensuite, puisqu'elle ne sert que de repli.
+ORDRE_CANAUX = (
+    "couple_mesure_gauche",
+    "couple_mesure_droite",
+    "couple_reference_gauche",
+    "couple_reference_droite",
+    "couple_reference",
+    "regime",
+    "temperature",
+)
 
 LIBELLES_TYPES = {
     "balayage": "Balayage — points stabilisés croissants puis décroissants",
@@ -77,6 +91,20 @@ def mapping_propose(noms_canaux: list[str]) -> dict[str, Any]:
     return mapping
 
 
+def noms_tous_dossiers(inventaire_par_dossier: dict[str, dict]) -> list[str]:
+    """Union triée des noms de canaux vus dans l'ensemble des dossiers.
+
+    Sert au mapping commun : quand les libellés sont identiques sur toute la
+    campagne — le cas courant —, il n'y a aucune raison de les redéclarer
+    dossier par dossier.
+    """
+    vus: dict[str, None] = {}
+    for donnees in inventaire_par_dossier.values():
+        for nom in donnees.get("noms", []):
+            vus.setdefault(nom, None)
+    return sorted(vus)
+
+
 def etat_initial(inventaire_par_dossier: dict[str, dict]) -> dict[str, Any]:
     """Construit l'état de départ de l'interface à partir de l'inventaire."""
     canaux: dict[str, dict] = {}
@@ -88,7 +116,21 @@ def etat_initial(inventaire_par_dossier: dict[str, dict]) -> dict[str, Any]:
             "ligne_droite": False,
             "groupe_remontage": None,
         }
-    return {"canaux": canaux, "essais": essais}
+    return {
+        "canaux": canaux,
+        "essais": essais,
+        "canaux_communs": mapping_propose(noms_tous_dossiers(inventaire_par_dossier)),
+    }
+
+
+def _nettoyer_mapping(mapping: dict[str, Any]) -> dict[str, Any]:
+    """Un canal marqué absent devient `null` — jamais une chaîne vide."""
+    propre: dict[str, Any] = {}
+    for role in CANAUX_SCALAIRES:
+        valeur = mapping.get(role)
+        propre[role] = None if valeur in (None, "", CANAL_ABSENT) else valeur
+    propre["etat"] = [c for c in (mapping.get("etat") or []) if c and c != CANAL_ABSENT]
+    return propre
 
 
 def construire_dict(
@@ -107,20 +149,24 @@ def construire_dict(
     zero: dict[str, Any],
     thermique: dict[str, Any],
     diagnostic: dict[str, Any],
+    canaux_communs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble le dictionnaire de configuration, au format du YAML de référence.
 
     Les canaux marqués absents dans l'interface deviennent `null`, ce qui rendra
     explicitement non calculables les grandeurs qui en dépendent.
+
+    `canaux_communs` renseigné produit un mapping unique dans `canaux.defaut`,
+    valable pour tous les essais — le cas courant, où les libellés sont
+    identiques sur toute la campagne. `canaux` (par dossier) ne sert que lorsque
+    les libellés diffèrent d'un dossier à l'autre.
     """
-    canaux_nettoyes: dict[str, dict] = {}
-    for dossier, mapping in canaux.items():
-        propre: dict[str, Any] = {}
-        for role in CANAUX_SCALAIRES:
-            valeur = mapping.get(role)
-            propre[role] = None if valeur in (None, "", CANAL_ABSENT) else valeur
-        propre["etat"] = [c for c in (mapping.get("etat") or []) if c and c != CANAL_ABSENT]
-        canaux_nettoyes[dossier] = propre
+    if canaux_communs is not None:
+        defaut = _nettoyer_mapping(canaux_communs)
+        canaux_nettoyes: dict[str, dict] = {}
+    else:
+        defaut = {}
+        canaux_nettoyes = {d: _nettoyer_mapping(m) for d, m in canaux.items()}
 
     essais_nettoyes: dict[str, dict] = {}
     for dossier, declaration in essais.items():
@@ -153,7 +199,7 @@ def construire_dict(
         },
         "acquisition": {"frequence_reechantillonnage_Hz": float(frequence_Hz)},
         "remontage": {"realise": remontage_realise},
-        "canaux": {"defaut": {}, "par_dossier": canaux_nettoyes},
+        "canaux": {"defaut": defaut, "par_dossier": canaux_nettoyes},
         "essais": essais_nettoyes,
         "paliers": dict(paliers),
         "intercorrelation": dict(intercorrelation),
@@ -211,6 +257,40 @@ def etat_depuis_dict(brut: dict[str, Any]) -> dict[str, Any]:
         for dossier, spec in essais.items()
     }
     return {"canaux": etat_canaux, "essais": etat_essais}
+
+
+def scalaires_depuis_dict(brut: dict[str, Any]) -> dict[str, Any]:
+    """Extrait de la configuration les valeurs scalaires de l'interface.
+
+    Sert à repeupler l'écran depuis un YAML enregistré, pour qu'un
+    rafraîchissement de page ne coûte jamais le travail de saisie.
+    """
+    comparaison = brut.get("comparaison") or {}
+    thermique = brut.get("thermique") or {}
+    u_ref = comparaison.get("incertitude_reference_k1_Nm")
+    plage = thermique.get("plage_service_C")
+    realise = (brut.get("remontage") or {}).get("realise")
+
+    valeurs: dict[str, Any] = {
+        "racine": str(brut.get("racine_donnees") or ""),
+        "dossier_sortie": str(brut.get("dossier_sortie") or "sortie"),
+        "pe": float(brut.get("pleine_echelle_Nm") or 1500.0),
+        "mode": comparaison.get("mode", "moyenne"),
+        "rapport": float(comparaison.get("rapport_reduction", 1.0)),
+        "freq": float((brut.get("acquisition") or {}).get("frequence_reechantillonnage_Hz", 100.0)),
+        "u_ref_connue": u_ref is not None,
+        "u_ref": float(u_ref) if u_ref is not None else 2.0,
+        "plage_connue": plage is not None,
+        "plage": float(plage) if plage is not None else 40.0,
+        "remontage": {True: "Oui", False: "Non", None: "Non précisé"}[realise],
+    }
+    for section, prefixe in (
+        ("paliers", "p"), ("intercorrelation", "i"), ("zero", "z"),
+        ("thermique", "t"), ("diagnostic", "d"),
+    ):
+        for cle, valeur in (brut.get(section) or {}).items():
+            valeurs[f"{prefixe}::{cle}"] = valeur
+    return valeurs
 
 
 def valider(configuration: dict[str, Any]) -> tuple[Config | None, list[str]]:

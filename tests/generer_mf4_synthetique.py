@@ -43,10 +43,12 @@ FE_COUPLE = 200.0
 FE_TEMPERATURE = 1.0
 FE_ETAT = 10.0
 
+# Le banc GMP fournit DEUX voies de référence, une par sortie.
 NOMS = {
     "gauche": "Trq_Transmission_G",
     "droite": "Trq_Transmission_D",
-    "reference": "Trq_Ref_BancGMP",
+    "reference_gauche": "Trq_Ref_BancGMP_G",
+    "reference_droite": "Trq_Ref_BancGMP_D",
     "regime": "N_Roue",
     "temperature": "T_Rotor_PCM16",
     "etat": "PCM16_LED_Status",
@@ -54,14 +56,20 @@ NOMS = {
 
 
 def _ecrire(chemin: Path, t, g, d, ref, regime, t_temp, temperature, t_etat, etat) -> None:
-    """Écrit un MDF4 à trois groupes de cadences distinctes."""
+    """Écrit un MDF4 à trois groupes de cadences distinctes.
+
+    Les deux voies de référence portent le même couple : le banc charge ses
+    sorties symétriquement. La vérité terrain reste donc inchangée quel que soit
+    le mode de comparaison retenu.
+    """
     chemin.parent.mkdir(parents=True, exist_ok=True)
     mdf = MDF(version="4.10")
     mdf.append(
         [
             Signal(g, t, name=NOMS["gauche"], unit="N.m"),
             Signal(d, t, name=NOMS["droite"], unit="N.m"),
-            Signal(ref, t, name=NOMS["reference"], unit="N.m"),
+            Signal(ref, t, name=NOMS["reference_gauche"], unit="N.m"),
+            Signal(ref.copy(), t, name=NOMS["reference_droite"], unit="N.m"),
             Signal(regime, t, name=NOMS["regime"], unit="rpm"),
         ],
         comment="Couples et regime",

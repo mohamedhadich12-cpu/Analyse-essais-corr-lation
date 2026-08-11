@@ -63,7 +63,7 @@ suivent le déroulé de l'analyse :
 | Onglet | Ce qu'on y fait |
 |---|---|
 | **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
-| **2 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Un bouton recopie le mapping d'un dossier vers les autres, en ne gardant que les canaux qui y existent réellement |
+| **2 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
 | **3 · Essais** | type d'essai, ligne droite, groupe de remontage |
 | **4 · Hypothèses** | toutes les bornes de traitement, et les deux saisies utilisateur |
 | **5 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
@@ -110,7 +110,8 @@ Puis renseigner, en s'appuyant sur le rapport d'inventaire, tout ce qui est marq
 
 | Clé | Pourquoi elle ne peut pas être devinée |
 |---|---|
-| `canaux:` | les libellés réels diffèrent d'une campagne à l'autre |
+| `canaux:` | les libellés réels diffèrent d'une campagne à l'autre. La référence banc se déclare sur **deux voies** (`couple_reference_gauche` / `_droite`) ; `couple_reference` n'est qu'un repli si le banc n'en fournit qu'une |
+| `comparaison.mode` | s'applique **de la même façon** aux voies mesurées et aux voies de référence : en `moyenne`, (G+D)/2 mesuré est confronté à (G+D)/2 de référence |
 | `essais.<dossier>.type` | `balayage`, `repetabilite` ou `dynamique` — détermine le traitement |
 | `essais.<dossier>.ligne_droite` | conditionne l'exploitation du résidu gauche − droite : hors ligne droite, cet écart est physique et non métrologique |
 | `remontage.realise` / `essais.<dossier>.groupe_remontage` | il faut **deux** étiquettes distinctes pour que la répétabilité après remontage existe. `remontage.realise: false` déclare qu'aucune dépose/repose n'a eu lieu : le rapport motive alors la non-calculabilité par « grandeur non définie » et non par « clé non configurée » |

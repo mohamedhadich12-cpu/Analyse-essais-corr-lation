@@ -21,7 +21,12 @@ import yaml
 CANAUX_SCALAIRES = (
     "couple_mesure_gauche",
     "couple_mesure_droite",
+    # La référence banc peut être une voie unique (couple total ou couple d'une
+    # transmission) ou deux voies gauche/droite. Les deux formes sont acceptées :
+    # si les deux voies sont renseignées, elles priment sur la voie unique.
     "couple_reference",
+    "couple_reference_gauche",
+    "couple_reference_droite",
     "regime",
     "temperature",
 )
@@ -76,6 +81,8 @@ class MappingCanaux:
     couple_mesure_gauche: str | None = None
     couple_mesure_droite: str | None = None
     couple_reference: str | None = None
+    couple_reference_gauche: str | None = None
+    couple_reference_droite: str | None = None
     regime: str | None = None
     temperature: str | None = None
     # Canaux d'état (LED télémétrie, CRC, compteurs d'erreurs...). Simplement
@@ -88,6 +95,17 @@ class MappingCanaux:
         return tuple(
             n for n in (self.couple_mesure_gauche, self.couple_mesure_droite) if n
         )
+
+    @property
+    def voies_couple_reference(self) -> tuple[str, ...]:
+        return tuple(
+            n for n in (self.couple_reference_gauche, self.couple_reference_droite) if n
+        )
+
+    @property
+    def a_reference(self) -> bool:
+        """Vrai dès qu'au moins une voie de référence est renseignée."""
+        return bool(self.couple_reference or self.voies_couple_reference)
 
     def presents(self) -> dict[str, str | None]:
         return {n: getattr(self, n) for n in CANAUX_SCALAIRES}
@@ -402,10 +420,18 @@ class Config:
         avertissements: list[str] = []
         for essai in self.essais:
             m = self.canaux_pour(essai.dossier)
-            if not m.couple_reference:
+            if not m.a_reference:
                 avertissements.append(
-                    f"« {essai.dossier} » : couple_reference non renseigné "
+                    f"« {essai.dossier} » : aucune voie de couple de référence renseignée "
                     "→ aucune comparaison à la référence banc possible sur cet essai."
+                )
+            elif len(m.voies_couple_mesure) == 2 and len(m.voies_couple_reference) < 2:
+                # Comparer une moyenne de deux voies mesurées à une référence unique
+                # n'a de sens que si l'on sait ce que cette référence représente.
+                avertissements.append(
+                    f"« {essai.dossier} » : couple mesuré sur 2 voies mais référence sur une "
+                    f"seule → vérifier la cohérence du mode « {self.mode_comparaison} » "
+                    "(cette référence est-elle le couple total ou celui d'une seule transmission ?)."
                 )
             if not m.voies_couple_mesure:
                 avertissements.append(

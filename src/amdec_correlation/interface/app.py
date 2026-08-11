@@ -5,6 +5,12 @@ appelle la bibliothèque et affiche ce qui en sort. Les chiffres à l'écran son
 donc les mêmes que ceux du rapport, et la configuration exportée rejoue à
 l'identique en ligne de commande.
 
+GESTION DE L'ÉTAT — Streamlit réexécute tout le script à chaque interaction.
+Chaque widget porte donc une **clé stable** et `st.session_state` est l'unique
+source de vérité : aucune valeur n'est recopiée à la main d'un côté à l'autre,
+et aucun défaut n'est recalculé à chaque passage. Sans cette discipline, la
+moindre saisie réinitialiserait les widgets rendus avant elle.
+
 Lancement :  python scripts/03_interface.py
 """
 
@@ -18,14 +24,14 @@ from pathlib import Path
 
 import streamlit as st
 
-_RACINE_PAQUET = Path(__file__).resolve().parents[3]
-if str(_RACINE_PAQUET / "src") not in sys.path:
-    sys.path.insert(0, str(_RACINE_PAQUET / "src"))
+_RACINE_PROJET = Path(__file__).resolve().parents[3]
+if str(_RACINE_PROJET / "src") not in sys.path:
+    sys.path.insert(0, str(_RACINE_PROJET / "src"))
 
 from amdec_correlation import analyse as A  # noqa: E402
 from amdec_correlation import inventaire as I  # noqa: E402
 from amdec_correlation import rapport as R  # noqa: E402
-from amdec_correlation.config import CANAUX_SCALAIRES, MODES_COMPARAISON  # noqa: E402
+from amdec_correlation.config import MODES_COMPARAISON  # noqa: E402
 from amdec_correlation.interface import etat as E  # noqa: E402
 
 # Palette partagée avec les figures : l'écran et les PNG se lisent comme un seul
@@ -36,10 +42,7 @@ BON = "#0ca30c"
 ATTENTION = "#fab219"
 CRITIQUE = "#d03b3b"
 
-
-# ---------------------------------------------------------------------------
-# Mise en page
-# ---------------------------------------------------------------------------
+FICHIER_CONFIG = _RACINE_PROJET / "config" / "correlation.yaml"
 
 st.set_page_config(
     page_title="Corrélation couple — banc GMP",
@@ -52,7 +55,6 @@ st.markdown(
     """
     <style>
       .block-container { padding-top: 2.2rem; max-width: 1400px; }
-      /* Filets discrets, une nuance au-dessus du fond : jamais de pointillés. */
       hr { border: none; border-top: 1px solid #e1e0d9; margin: 1.2rem 0; }
       div[data-testid="stMetricValue"] { font-size: 1.55rem; }
       .etape { color: #52514e; font-size: 0.86rem; line-height: 1.7; }
@@ -65,10 +67,86 @@ st.markdown(
 )
 
 
-def _etat(cle: str, defaut):
-    if cle not in st.session_state:
-        st.session_state[cle] = defaut
-    return st.session_state[cle]
+# ---------------------------------------------------------------------------
+# État
+# ---------------------------------------------------------------------------
+
+# Valeurs initiales de tous les widgets scalaires. Elles ne sont posées qu'UNE
+# fois : ensuite, les widgets écrivent directement dans `st.session_state`.
+DEFAUTS: dict[str, object] = {
+    "racine": "", "dossier_sortie": "sortie",
+    "pe": 1500.0, "mode": "moyenne", "rapport": 1.0, "freq": 100.0,
+    "n_fichiers": 2, "mapping_commun": True,
+    "u_ref_connue": False, "u_ref": 2.0,
+    "plage_connue": False, "plage": 40.0,
+    "remontage": "Non précisé",
+    "p::duree_palier_s": 2.0, "p::tolerance_stab_pc_pe": 0.5,
+    "p::fraction_finale": 0.5, "p::ecart_min_paliers_pc_pe": 1.0,
+    "p::tolerance_appariement_pc_pe": 1.0,
+    "i::retard_max_ms": 500.0, "i::passe_haut_Hz": 0.2,
+    "i::seuil_activite_pc_pe": 2.0, "i::fenetre_activite_s": 1.0,
+    "i::duree_comblement_s": 5.0,
+    "z::duree_fenetre_s": 5.0, "z::seuil_couple_ref_pc_pe": 1.0,
+    "z::seuil_regime": 20.0, "z::fraction_bord": 0.25,
+    "t::amplitude_min_C": 5.0,
+    "d::seuil_offset_pc_pe": 0.5, "d::seuil_gain_pc": 1.0,
+    "d::seuil_retard_ms": 5.0, "d::gain_rms_recalage": 0.30,
+    "d::seuil_correlation_point_fct": 0.5,
+}
+
+for _cle, _valeur in DEFAUTS.items():
+    st.session_state.setdefault(_cle, _valeur)
+st.session_state.setdefault("inventaire", {})
+st.session_state.setdefault("canaux_communs", {})
+st.session_state.setdefault("canaux", {})
+st.session_state.setdefault("essais", {})
+st.session_state.setdefault("campagne", None)
+
+
+def _section(prefixe: str) -> dict[str, object]:
+    """Rassemble les paramètres d'une section depuis l'état des widgets."""
+    n = len(prefixe) + 2
+    return {
+        cle[n:]: st.session_state[cle]
+        for cle in DEFAUTS
+        if cle.startswith(f"{prefixe}::")
+    }
+
+
+def _selectbox_canal(libelle: str, cle: str, options: list[str]) -> None:
+    """Liste déroulante de canal, robuste au changement de la liste d'options.
+
+    Si la valeur mémorisée n'existe plus (nouvel inventaire, autre dossier),
+    on retombe sur « absent » plutôt que de laisser Streamlit lever.
+    """
+    if st.session_state.get(cle) not in options:
+        st.session_state[cle] = E.CANAL_ABSENT
+    st.selectbox(libelle, options, key=cle)
+
+
+def _multiselect_etat(libelle: str, cle: str, options: list[str]) -> None:
+    st.session_state[cle] = [v for v in st.session_state.get(cle, []) if v in options]
+    st.multiselect(libelle, options, key=cle)
+
+
+def _case(libelle: str, cle: str, defaut: bool, aide: str = "") -> bool:
+    """Case à cocher dont l'état applicatif est tenu explicitement.
+
+    Les onglets 2 et 3 ne sont rendus qu'une fois l'inventaire fait : leurs
+    widgets apparaissent donc pour la première fois lors d'un rerun ultérieur.
+    Dans ce cas, une clé pré-alimentée dans `session_state` n'est pas reprise
+    par le widget — la case garde son propre état, décorrélé de celui de
+    l'application, et les clics restent sans effet. On donne donc au widget une
+    clé distincte et on recopie sa valeur dans l'état applicatif.
+    """
+    valeur = st.checkbox(
+        libelle,
+        value=bool(st.session_state.get(cle, defaut)),
+        key=f"w::{cle}",
+        help=aide or None,
+    )
+    st.session_state[cle] = valeur
+    return valeur
 
 
 def _pastille(ok: bool | None, texte: str) -> str:
@@ -91,7 +169,6 @@ def inventorier(racine: str, n_fichiers: int) -> dict[str, dict]:
             "coherent": inv.libelles_coherents,
             "erreurs": inv.erreurs,
             "noms": inv.noms_uniques,
-            "candidats": I.candidats(inv.noms_uniques),
             "canaux": [
                 {
                     "Canal": d.nom,
@@ -105,9 +182,7 @@ def inventorier(racine: str, n_fichiers: int) -> dict[str, dict]:
                 for descriptions in inv.canaux.values()
                 for d in descriptions
             ],
-            "n_groupes": len(
-                {d.groupe for desc in inv.canaux.values() for d in desc}
-            ),
+            "n_groupes": len({d.groupe for desc in inv.canaux.values() for d in desc}),
         }
     return resultats
 
@@ -119,6 +194,65 @@ def _valeur(x: float, decimales: int = 3, signe: bool = False, suffixe: str = ""
     return gabarit.format(x) + suffixe
 
 
+def _appliquer_inventaire(inventaire: dict[str, dict]) -> None:
+    """Pose les propositions de mapping et de type, sans écraser une saisie."""
+    depart = E.etat_initial(inventaire)
+    if not st.session_state["canaux_communs"]:
+        st.session_state["canaux_communs"] = depart["canaux_communs"]
+    for dossier, mapping in depart["canaux"].items():
+        st.session_state["canaux"].setdefault(dossier, mapping)
+    for dossier, declaration in depart["essais"].items():
+        st.session_state["essais"].setdefault(dossier, declaration)
+    # Alimente les clés de widgets, sans toucher à celles déjà renseignées.
+    for role, valeur in st.session_state["canaux_communs"].items():
+        if role == "etat":
+            st.session_state.setdefault("gcanal::etat", list(valeur or []))
+        else:
+            st.session_state.setdefault(f"gcanal::{role}", valeur or E.CANAL_ABSENT)
+    for dossier, mapping in st.session_state["canaux"].items():
+        for role, valeur in mapping.items():
+            if role == "etat":
+                st.session_state.setdefault(f"canal::{dossier}::etat", list(valeur or []))
+            else:
+                st.session_state.setdefault(f"canal::{dossier}::{role}", valeur or E.CANAL_ABSENT)
+    for dossier, declaration in st.session_state["essais"].items():
+        st.session_state.setdefault(f"type::{dossier}", declaration["type"])
+        st.session_state.setdefault(f"ld::{dossier}", bool(declaration["ligne_droite"]))
+        st.session_state.setdefault(f"gr::{dossier}", declaration.get("groupe_remontage") or "")
+
+
+def _charger_configuration(chemin: Path) -> None:
+    """Repeuple l'écran depuis un YAML enregistré."""
+    brut = E.depuis_yaml(chemin)
+    for cle, valeur in E.scalaires_depuis_dict(brut).items():
+        if cle in DEFAUTS:
+            st.session_state[cle] = valeur
+    etat = E.etat_depuis_dict(brut)
+    st.session_state["canaux"] = etat["canaux"]
+    st.session_state["essais"] = etat["essais"]
+    defaut = (brut.get("canaux") or {}).get("defaut") or {}
+    if defaut:
+        st.session_state["canaux_communs"] = defaut
+        st.session_state["mapping_commun"] = True
+        for role, valeur in defaut.items():
+            if role == "etat":
+                st.session_state["gcanal::etat"] = list(valeur or [])
+            else:
+                st.session_state[f"gcanal::{role}"] = valeur or E.CANAL_ABSENT
+    else:
+        st.session_state["mapping_commun"] = False
+    for dossier, mapping in etat["canaux"].items():
+        for role, valeur in mapping.items():
+            if role == "etat":
+                st.session_state[f"canal::{dossier}::etat"] = list(valeur or [])
+            else:
+                st.session_state[f"canal::{dossier}::{role}"] = valeur or E.CANAL_ABSENT
+    for dossier, declaration in etat["essais"].items():
+        st.session_state[f"type::{dossier}"] = declaration["type"]
+        st.session_state[f"ld::{dossier}"] = bool(declaration["ligne_droite"])
+        st.session_state[f"gr::{dossier}"] = declaration.get("groupe_remontage") or ""
+
+
 # ---------------------------------------------------------------------------
 # Barre latérale
 # ---------------------------------------------------------------------------
@@ -128,80 +262,60 @@ with st.sidebar:
     st.caption("Chapitre 10 — rapport AMDEC")
     st.divider()
 
-    racine = st.text_input(
-        "Dossier racine des acquisitions",
-        value=_etat("racine", ""),
-        placeholder=r"C:\Users\SD17365\Documents",
+    st.text_input(
+        "Dossier racine des acquisitions", key="racine",
+        placeholder=r"C:\user\SD17365\Documents",
         help="Le dossier qui contient les sous-dossiers d'essai. Rien n'est envoyé "
         "hors du poste : tout s'exécute en local, en lecture seule.",
     )
-    st.session_state["racine"] = racine
+    racine = st.session_state["racine"]
     racine_ok = bool(racine) and Path(racine).is_dir()
     if racine and not racine_ok:
         st.error("Dossier introuvable.")
 
-    dossier_sortie = st.text_input(
-        "Dossier de sortie",
-        value=_etat("dossier_sortie", "sortie"),
-        help="Rapport Markdown et figures PNG y seront écrits.",
-    )
-    st.session_state["dossier_sortie"] = dossier_sortie
+    st.text_input("Dossier de sortie", key="dossier_sortie",
+                  help="Rapport Markdown et figures PNG y seront écrits.")
 
     st.divider()
     st.markdown("**Chaîne de mesure**")
-    pleine_echelle = st.number_input(
-        "Pleine échelle capteur (N·m)", min_value=1.0, value=_etat("pe", 1500.0), step=50.0,
-        help="Toutes les grandeurs en « % PE » s'y rapportent.",
+    st.number_input("Pleine échelle capteur (N·m)", min_value=1.0, step=50.0, key="pe",
+                    help="Toutes les grandeurs en « % PE » s'y rapportent.")
+    st.selectbox(
+        "Voie comparée à la référence", MODES_COMPARAISON, key="mode",
+        help="Le mode s'applique de la même façon aux voies mesurées et aux voies "
+        "de référence : « moyenne » compare (G+D)/2 mesuré à (G+D)/2 référence.",
     )
-    st.session_state["pe"] = pleine_echelle
-
-    mode = st.selectbox(
-        "Voie comparée à la référence",
-        MODES_COMPARAISON,
-        index=MODES_COMPARAISON.index(_etat("mode", "moyenne")),
-        help="« moyenne » convient à une référence prise au même point de la chaîne "
-        "(rapport 1:1) ; « somme » si la référence est le couple total aux roues.",
-    )
-    st.session_state["mode"] = mode
-
-    rapport_reduction = st.number_input(
-        "Rapport de réduction appliqué à la référence",
-        min_value=0.0001, value=_etat("rapport", 1.0), step=0.1, format="%.4f",
-        help="1,0 = référence prise au même point que les transmissions.",
-    )
-    st.session_state["rapport"] = rapport_reduction
-
-    frequence = st.number_input(
-        "Fréquence de rééchantillonnage (Hz)",
-        min_value=1.0, value=_etat("freq", 100.0), step=10.0,
-        help="Grille de temps commune. À choisir au moins égale à la cadence du canal "
-        "le plus rapide utilisé (visible dans l'onglet Exploration).",
-    )
-    st.session_state["freq"] = frequence
+    st.number_input("Rapport de réduction appliqué à la référence", min_value=0.0001,
+                    step=0.1, format="%.4f", key="rapport",
+                    help="1,0 = référence prise au même point que les transmissions.")
+    st.number_input("Fréquence de rééchantillonnage (Hz)", min_value=1.0, step=10.0,
+                    key="freq",
+                    help="Grille de temps commune. Au moins égale à la cadence du canal "
+                    "le plus rapide utilisé.")
 
     st.divider()
-    inventaire_fait = bool(st.session_state.get("inventaire"))
-    campagne_faite = st.session_state.get("campagne") is not None
+    st.markdown("**Configuration enregistrée**")
+    st.caption(f"`{FICHIER_CONFIG.relative_to(_RACINE_PROJET)}`")
+    if FICHIER_CONFIG.is_file() and st.button("Recharger", use_container_width=True):
+        _charger_configuration(FICHIER_CONFIG)
+        st.success("Configuration rechargée.")
+        st.rerun()
+
+    st.divider()
     st.markdown(
         "<div class='etape'>"
         + _pastille(racine_ok or None, "Dossier racine")
         + "<br>"
-        + _pastille(inventaire_fait or None, "Canaux inventoriés")
+        + _pastille(bool(st.session_state["inventaire"]) or None, "Canaux inventoriés")
         + "<br>"
-        + _pastille(campagne_faite or None, "Analyse exécutée")
+        + _pastille(st.session_state["campagne"] is not None or None, "Analyse exécutée")
         + "</div>",
         unsafe_allow_html=True,
     )
 
 
 onglets = st.tabs(
-    [
-        "1 · Exploration",
-        "2 · Canaux",
-        "3 · Essais",
-        "4 · Hypothèses",
-        "5 · Analyse & résultats",
-    ]
+    ["1 · Exploration", "2 · Canaux", "3 · Essais", "4 · Hypothèses", "5 · Analyse & résultats"]
 )
 
 # ---------------------------------------------------------------------------
@@ -218,15 +332,12 @@ with onglets[0]:
     )
     st.write("")
 
-    gauche, droite = st.columns([1, 3])
+    gauche, _ = st.columns([1, 3])
     with gauche:
-        n_fichiers = st.number_input(
-            "Fichiers examinés par dossier", min_value=1, max_value=20,
-            value=_etat("n_fichiers", 2),
-        )
-        st.session_state["n_fichiers"] = n_fichiers
-        lancer = st.button("Inventorier les canaux", type="primary", disabled=not racine_ok,
-                           use_container_width=True)
+        st.number_input("Fichiers examinés par dossier", min_value=1, max_value=20,
+                        key="n_fichiers")
+        lancer = st.button("Inventorier les canaux", type="primary",
+                           disabled=not racine_ok, use_container_width=True)
         if st.button("Vider le cache", use_container_width=True, disabled=not racine_ok):
             inventorier.clear()
             st.success("Cache vidé.")
@@ -234,26 +345,24 @@ with onglets[0]:
     if lancer:
         try:
             with st.spinner("Lecture des acquisitions (lecture seule)…"):
-                st.session_state["inventaire"] = inventorier(racine, int(n_fichiers))
-            depart = E.etat_initial(st.session_state["inventaire"])
-            st.session_state.setdefault("canaux", depart["canaux"])
-            st.session_state.setdefault("essais", depart["essais"])
-            # La barre latérale est rendue avant le contenu : sans ce rejeu, son
-            # indicateur d'étape afficherait l'état d'avant l'inventaire.
-            st.rerun()
+                st.session_state["inventaire"] = inventorier(
+                    racine, int(st.session_state["n_fichiers"])
+                )
+            _appliquer_inventaire(st.session_state["inventaire"])
+            st.rerun()  # rafraîchit l'indicateur d'étape, rendu avant ce point
         except Exception as exc:
             st.error(f"Inventaire impossible : {exc}")
 
-    inventaire = st.session_state.get("inventaire") or {}
+    inventaire = st.session_state["inventaire"]
     if not inventaire:
         st.info("Renseigne le dossier racine, puis lance l'inventaire.")
     else:
         st.success(f"{len(inventaire)} sous-dossier(s) d'essai contenant des `.mf4`.")
         for dossier, donnees in inventaire.items():
-            titre = f"{dossier} — {donnees['n_fichiers']} fichier(s)"
-            with st.expander(titre, expanded=False):
+            with st.expander(f"{dossier} — {donnees['n_fichiers']} fichier(s)"):
                 if donnees["erreurs"]:
-                    st.error("Erreurs de lecture :\n\n" + "\n".join(f"- {e}" for e in donnees["erreurs"]))
+                    st.error("Erreurs de lecture :\n\n"
+                             + "\n".join(f"- {e}" for e in donnees["erreurs"]))
                 if not donnees["coherent"]:
                     st.warning(
                         "⚠️ Les fichiers examinés ne portent pas le même jeu de canaux. "
@@ -265,7 +374,8 @@ with onglets[0]:
                         "distinctes. Les canaux seront ramenés sur une grille de temps commune "
                         "(intersection des plages, aucune extrapolation)."
                     )
-                st.caption("Fichiers examinés : " + ", ".join(f"`{f}`" for f in donnees["fichiers"]))
+                st.caption("Fichiers examinés : "
+                           + ", ".join(f"`{f}`" for f in donnees["fichiers"]))
                 st.dataframe(donnees["canaux"], use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------------------
@@ -274,70 +384,69 @@ with onglets[0]:
 
 with onglets[1]:
     st.subheader("Mapping des canaux")
-    inventaire = st.session_state.get("inventaire") or {}
+    inventaire = st.session_state["inventaire"]
     if not inventaire:
         st.info("Lance d'abord l'inventaire (onglet 1).")
     else:
+        _case(
+            "Les libellés sont identiques sur toute la campagne (mapping commun)",
+            "mapping_commun", True,
+            "Cas courant. Décoche seulement si les noms de canaux diffèrent "
+            "d'un dossier d'essai à l'autre.",
+        )
         st.markdown(
             "<div class='aide'>Les valeurs pré-sélectionnées sont des <b>candidats</b> "
             "repérés par mots-clés, pas des certitudes : vérifie chaque ligne. "
             "« — absent — » rend explicitement non calculables les grandeurs qui "
-            "dépendent de ce canal, plutôt que de les estimer.</div>",
+            "dépendent de ce canal, plutôt que de les estimer.<br>"
+            "La référence banc se déclare sur <b>deux voies gauche et droite</b> ; "
+            "la voie unique en dessous n'est qu'un repli si le banc n'en fournit qu'une.</div>",
             unsafe_allow_html=True,
         )
         st.write("")
 
-        canaux_etat = _etat("canaux", E.etat_initial(inventaire)["canaux"])
-        dossiers = list(inventaire)
-
-        modele = st.selectbox(
-            "Recopier le mapping d'un dossier vers tous les autres",
-            ["—"] + dossiers,
-            help="Cas courant : la même convention de nommage sur toute la campagne.",
-        )
-        if modele != "—" and st.button("Appliquer à tous les dossiers"):
-            source = dict(canaux_etat.get(modele, {}))
-            for dossier in dossiers:
-                disponibles = set(inventaire[dossier]["noms"])
-                # On ne recopie que ce qui existe réellement dans le dossier cible.
-                copie = {
-                    role: (source.get(role) if source.get(role) in disponibles else None)
-                    for role in CANAUX_SCALAIRES
-                }
-                copie["etat"] = [c for c in (source.get("etat") or []) if c in disponibles]
-                canaux_etat[dossier] = copie
-            st.session_state["canaux"] = canaux_etat
-            st.success(f"Mapping de « {modele} » recopié, en ne gardant que les canaux présents.")
-            st.rerun()
-
-        for dossier in dossiers:
-            noms = inventaire[dossier]["noms"]
-            options = [E.CANAL_ABSENT] + noms
-            mapping = canaux_etat.setdefault(dossier, E.mapping_propose(noms))
-            manquants = [r for r in ("couple_reference",) if not mapping.get(r)]
-            marque = " ⚠️" if manquants else ""
-            with st.expander(f"{dossier}{marque}", expanded=bool(manquants)):
-                colonnes = st.columns(2)
-                for i, role in enumerate(CANAUX_SCALAIRES):
-                    courant = mapping.get(role)
-                    index = options.index(courant) if courant in options else 0
-                    with colonnes[i % 2]:
-                        choix = st.selectbox(
-                            E.LIBELLES_CANAUX[role], options, index=index,
-                            key=f"canal::{dossier}::{role}",
-                        )
-                    mapping[role] = None if choix == E.CANAL_ABSENT else choix
-                mapping["etat"] = st.multiselect(
-                    "Canaux d'état (LED, CRC, erreurs) — relevés sans interprétation",
-                    noms,
-                    default=[c for c in (mapping.get("etat") or []) if c in noms],
-                    key=f"etat::{dossier}",
-                )
-                if not mapping.get("couple_reference"):
-                    st.warning("Sans couple de référence, cet essai ne sera pas exploité.")
-                elif not (mapping.get("couple_mesure_gauche") or mapping.get("couple_mesure_droite")):
-                    st.warning("Sans voie de couple mesuré, cet essai ne sera pas exploité.")
-        st.session_state["canaux"] = canaux_etat
+        if st.session_state["mapping_commun"]:
+            options = [E.CANAL_ABSENT] + E.noms_tous_dossiers(inventaire)
+            colonnes = st.columns(2)
+            for i, role in enumerate(E.ORDRE_CANAUX):
+                with colonnes[i % 2]:
+                    _selectbox_canal(E.LIBELLES_CANAUX[role], f"gcanal::{role}", options)
+            _multiselect_etat(
+                "Canaux d'état (LED, CRC, erreurs) — relevés sans interprétation",
+                "gcanal::etat", options[1:],
+            )
+            manquants = [
+                r for r in ("couple_reference_gauche", "couple_reference_droite")
+                if st.session_state.get(f"gcanal::{r}") == E.CANAL_ABSENT
+            ]
+            if len(manquants) == 2 and st.session_state.get("gcanal::couple_reference") == E.CANAL_ABSENT:
+                st.warning("Aucune voie de couple de référence : aucun essai ne sera exploitable.")
+            elif manquants and len(manquants) == 1:
+                st.warning("Une seule voie de référence sur deux est renseignée.")
+            # Les canaux communs doivent exister dans chaque dossier.
+            for dossier, donnees in inventaire.items():
+                absents = [
+                    E.LIBELLES_CANAUX[r]
+                    for r in E.ORDRE_CANAUX
+                    if st.session_state.get(f"gcanal::{r}") not in (E.CANAL_ABSENT, None)
+                    and st.session_state.get(f"gcanal::{r}") not in donnees["noms"]
+                ]
+                if absents:
+                    st.warning(
+                        f"« {dossier} » ne contient pas : {', '.join(absents)}. "
+                        "Décoche le mapping commun pour traiter ce dossier à part."
+                    )
+        else:
+            for dossier, donnees in inventaire.items():
+                options = [E.CANAL_ABSENT] + donnees["noms"]
+                with st.expander(dossier):
+                    colonnes = st.columns(2)
+                    for i, role in enumerate(E.ORDRE_CANAUX):
+                        with colonnes[i % 2]:
+                            _selectbox_canal(
+                                E.LIBELLES_CANAUX[role], f"canal::{dossier}::{role}", options
+                            )
+                    _multiselect_etat("Canaux d'état", f"canal::{dossier}::etat", options[1:])
 
 # ---------------------------------------------------------------------------
 # 3 · Essais
@@ -345,7 +454,7 @@ with onglets[1]:
 
 with onglets[2]:
     st.subheader("Déclaration des essais")
-    inventaire = st.session_state.get("inventaire") or {}
+    inventaire = st.session_state["inventaire"]
     if not inventaire:
         st.info("Lance d'abord l'inventaire (onglet 1).")
     else:
@@ -359,42 +468,27 @@ with onglets[2]:
             unsafe_allow_html=True,
         )
         st.write("")
-
-        essais_etat = _etat("essais", E.etat_initial(inventaire)["essais"])
         types = list(E.LIBELLES_TYPES)
-
         for dossier in inventaire:
-            declaration = essais_etat.setdefault(
-                dossier, {"type": E.type_propose(dossier), "ligne_droite": False,
-                          "groupe_remontage": None}
-            )
             c1, c2, c3 = st.columns([3, 1, 1.4])
             with c1:
-                declaration["type"] = st.selectbox(
-                    dossier, types,
-                    index=types.index(declaration.get("type", "dynamique")),
-                    format_func=lambda t: E.LIBELLES_TYPES[t],
-                    key=f"type::{dossier}",
-                )
+                st.selectbox(dossier, types, format_func=lambda t: E.LIBELLES_TYPES[t],
+                             key=f"type::{dossier}")
             with c2:
-                declaration["ligne_droite"] = st.checkbox(
-                    "Ligne droite", value=bool(declaration.get("ligne_droite")),
-                    key=f"ld::{dossier}",
-                )
+                _case("Ligne droite", f"ld::{dossier}", False)
             with c3:
-                saisi = st.text_input(
-                    "Groupe remontage", value=declaration.get("groupe_remontage") or "",
-                    placeholder="avant / apres", key=f"gr::{dossier}",
-                )
-                declaration["groupe_remontage"] = saisi.strip() or None
-        st.session_state["essais"] = essais_etat
+                st.text_input("Groupe remontage", placeholder="avant / apres",
+                              key=f"gr::{dossier}")
 
-        etiquettes = {d["groupe_remontage"] for d in essais_etat.values() if d.get("groupe_remontage")}
+        etiquettes = {
+            (st.session_state.get(f"gr::{d}") or "").strip()
+            for d in inventaire
+        } - {""}
         if len(etiquettes) < 2:
             st.caption(
                 f"ℹ️ {len(etiquettes)} groupe(s) de remontage déclaré(s). La répétabilité après "
                 "remontage sera annoncée non calculable — motivée comme grandeur non définie "
-                "si tu déclares ci-dessous qu'aucun remontage n'a eu lieu."
+                "si tu indiques dans l'onglet Hypothèses qu'aucun remontage n'a eu lieu."
             )
 
 # ---------------------------------------------------------------------------
@@ -414,103 +508,99 @@ with onglets[3]:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        u_ref_saisie = st.checkbox(
-            "Incertitude du banc connue", value=_etat("u_ref_connue", False),
-            help="À reprendre du certificat d'étalonnage du banc GMP.",
-        )
-        st.session_state["u_ref_connue"] = u_ref_saisie
-        u_ref = st.number_input(
-            "Incertitude-type k=1 (N·m)", min_value=0.0, value=_etat("u_ref", 2.0), step=0.5,
-            disabled=not u_ref_saisie,
-            help="Incertitude-TYPE (k=1). Si le certificat donne une incertitude élargie "
-            "à k=2, saisir la moitié.",
-        )
-        st.session_state["u_ref"] = u_ref
+        st.checkbox("Incertitude du banc connue", key="u_ref_connue",
+                    help="À reprendre du certificat d'étalonnage du banc GMP.")
+        st.number_input("Incertitude-type k=1 (N·m)", min_value=0.0, step=0.5, key="u_ref",
+                        disabled=not st.session_state["u_ref_connue"],
+                        help="Incertitude-TYPE (k=1). Si le certificat donne une incertitude "
+                        "élargie à k=2, saisir la moitié.")
     with c2:
-        plage_saisie = st.checkbox(
-            "Plage de service connue", value=_etat("plage_connue", False),
-            help="Domaine d'emploi. L'excursion constatée sur les essais ne peut pas en "
-            "tenir lieu : elle décrit la campagne, pas les conditions de service.",
-        )
-        st.session_state["plage_connue"] = plage_saisie
-        plage_service = st.number_input(
-            "Plage de température de service (°C)", min_value=0.0,
-            value=_etat("plage", 40.0), step=5.0, disabled=not plage_saisie,
-        )
-        st.session_state["plage"] = plage_service
+        st.checkbox("Plage de service connue", key="plage_connue",
+                    help="Domaine d'emploi. L'excursion constatée sur les essais ne peut pas "
+                    "en tenir lieu : elle décrit la campagne, pas les conditions de service.")
+        st.number_input("Plage de température de service (°C)", min_value=0.0, step=5.0,
+                        key="plage", disabled=not st.session_state["plage_connue"])
     with c3:
-        remontage = st.selectbox(
-            "Démontage/remontage sur la campagne",
-            ["Non précisé", "Oui", "Non"],
-            index=["Non précisé", "Oui", "Non"].index(_etat("remontage", "Non précisé")),
-            help="« Non » motive la non-calculabilité par l'absence d'objet à mesurer, "
-            "plutôt que par une configuration incomplète.",
-        )
-        st.session_state["remontage"] = remontage
+        st.selectbox("Démontage/remontage sur la campagne",
+                     ["Non précisé", "Oui", "Non"], key="remontage",
+                     help="« Non » motive la non-calculabilité par l'absence d'objet à "
+                     "mesurer, plutôt que par une configuration incomplète.")
 
     st.divider()
     a, b = st.columns(2)
     with a:
         st.markdown("**Détection des paliers stabilisés**")
-        paliers = {
-            "duree_palier_s": st.number_input("Durée minimale d'un palier (s)", 0.2, 60.0, _etat("p_duree", 2.0), 0.5),
-            "tolerance_stab_pc_pe": st.number_input("Tolérance de stabilité (% PE)", 0.01, 10.0, _etat("p_tol", 0.5), 0.1),
-            "fraction_finale": st.slider("Fraction finale moyennée", 0.1, 1.0, _etat("p_frac", 0.5), 0.05),
-            "ecart_min_paliers_pc_pe": st.number_input("Écart minimal entre paliers (% PE)", 0.1, 20.0, _etat("p_ecart", 1.0), 0.1),
-            "tolerance_appariement_pc_pe": st.number_input("Tolérance d'appariement (% PE)", 0.1, 20.0, _etat("p_app", 1.0), 0.1),
-        }
+        st.number_input("Durée minimale d'un palier (s)", 0.2, 60.0, step=0.5,
+                        key="p::duree_palier_s")
+        st.number_input("Tolérance de stabilité (% PE)", 0.01, 10.0, step=0.1,
+                        key="p::tolerance_stab_pc_pe")
+        st.slider("Fraction finale moyennée", 0.1, 1.0, step=0.05, key="p::fraction_finale")
+        st.number_input("Écart minimal entre paliers (% PE)", 0.1, 20.0, step=0.1,
+                        key="p::ecart_min_paliers_pc_pe")
+        st.number_input("Tolérance d'appariement (% PE)", 0.1, 20.0, step=0.1,
+                        key="p::tolerance_appariement_pc_pe")
         st.markdown("**Relevés de zéro**")
-        zero = {
-            "duree_fenetre_s": st.number_input("Durée de fenêtre de repos (s)", 0.5, 120.0, _etat("z_duree", 5.0), 1.0),
-            "seuil_couple_ref_pc_pe": st.number_input("Seuil de couple au repos (% PE)", 0.01, 10.0, _etat("z_couple", 1.0), 0.1),
-            "seuil_regime": st.number_input("Seuil de régime au repos", 0.0, 5000.0, _etat("z_regime", 20.0), 5.0),
-            "fraction_bord": st.slider("Position exigée des relevés (fraction de l'essai)", 0.05, 0.5, _etat("z_bord", 0.25), 0.05),
-        }
+        st.number_input("Durée de fenêtre de repos (s)", 0.5, 120.0, step=1.0,
+                        key="z::duree_fenetre_s")
+        st.number_input("Seuil de couple au repos (% PE)", 0.01, 10.0, step=0.1,
+                        key="z::seuil_couple_ref_pc_pe")
+        st.number_input("Seuil de régime au repos", 0.0, 5000.0, step=5.0,
+                        key="z::seuil_regime")
+        st.slider("Position exigée des relevés (fraction de l'essai)", 0.05, 0.5, step=0.05,
+                  key="z::fraction_bord")
     with b:
         st.markdown("**Recalage temporel**")
-        intercorrelation = {
-            "retard_max_ms": st.number_input("Retard maximal recherché (ms)", 1.0, 5000.0, _etat("i_max", 500.0), 50.0),
-            "passe_haut_Hz": st.number_input("Passe-haut avant corrélation (Hz)", 0.0, 50.0, _etat("i_ph", 0.2), 0.1),
-            "seuil_activite_pc_pe": st.number_input("Seuil d'activité dynamique (% PE)", 0.1, 50.0, _etat("i_act", 2.0), 0.5),
-            "fenetre_activite_s": st.number_input("Fenêtre d'activité (s)", 0.1, 30.0, _etat("i_fen", 1.0), 0.5),
-            "duree_comblement_s": st.number_input("Comblement des interruptions (s)", 0.0, 60.0, _etat("i_comb", 5.0), 1.0),
-        }
+        st.number_input("Retard maximal recherché (ms)", 1.0, 5000.0, step=50.0,
+                        key="i::retard_max_ms")
+        st.number_input("Passe-haut avant corrélation (Hz) — 0 pour désactiver",
+                        0.0, 50.0, step=0.1, key="i::passe_haut_Hz")
+        st.number_input("Seuil d'activité dynamique (% PE)", 0.1, 50.0, step=0.5,
+                        key="i::seuil_activite_pc_pe")
+        st.number_input("Fenêtre d'activité (s)", 0.1, 30.0, step=0.5,
+                        key="i::fenetre_activite_s")
+        st.number_input("Comblement des interruptions (s)", 0.0, 60.0, step=1.0,
+                        key="i::duree_comblement_s")
         st.markdown("**Sensibilité thermique**")
-        thermique = {
-            "amplitude_min_C": st.number_input("Excursion thermique minimale (°C)", 0.5, 100.0, _etat("t_amp", 5.0), 1.0),
-            "plage_service_C": float(plage_service) if plage_saisie else None,
-        }
+        st.number_input("Excursion thermique minimale (°C)", 0.5, 100.0, step=1.0,
+                        key="t::amplitude_min_C")
         st.markdown("**Seuils de rédaction de la conclusion**")
-        diagnostic = {
-            "seuil_offset_pc_pe": st.number_input("Offset significatif (% PE)", 0.01, 10.0, _etat("d_off", 0.5), 0.1),
-            "seuil_gain_pc": st.number_input("Gain significatif (%)", 0.01, 20.0, _etat("d_gain", 1.0), 0.1),
-            "seuil_retard_ms": st.number_input("Retard significatif (ms)", 0.1, 500.0, _etat("d_ret", 5.0), 1.0),
-            "gain_rms_recalage": st.slider("Baisse de RMS attribuée à la synchronisation", 0.05, 0.95, _etat("d_rms", 0.30), 0.05),
-            "seuil_correlation_point_fct": st.slider("|r| résidu / point de fonctionnement", 0.1, 0.95, _etat("d_r", 0.5), 0.05),
-        }
-    if intercorrelation["passe_haut_Hz"] == 0.0:
-        intercorrelation["passe_haut_Hz"] = None
-
-    st.session_state["params"] = {
-        "paliers": paliers, "intercorrelation": intercorrelation,
-        "zero": zero, "thermique": thermique, "diagnostic": diagnostic,
-    }
+        st.number_input("Offset significatif (% PE)", 0.01, 10.0, step=0.1,
+                        key="d::seuil_offset_pc_pe")
+        st.number_input("Gain significatif (%)", 0.01, 20.0, step=0.1, key="d::seuil_gain_pc")
+        st.number_input("Retard significatif (ms)", 0.1, 500.0, step=1.0,
+                        key="d::seuil_retard_ms")
+        st.slider("Baisse de RMS attribuée à la synchronisation", 0.05, 0.95, step=0.05,
+                  key="d::gain_rms_recalage")
+        st.slider("|r| résidu / point de fonctionnement", 0.1, 0.95, step=0.05,
+                  key="d::seuil_correlation_point_fct")
 
 # ---------------------------------------------------------------------------
 # 5 · Analyse & résultats
 # ---------------------------------------------------------------------------
 
 
+def _mapping_depuis_widgets(prefixe: str) -> dict[str, object]:
+    mapping: dict[str, object] = {}
+    for role in E.ORDRE_CANAUX:
+        valeur = st.session_state.get(f"{prefixe}{role}", E.CANAL_ABSENT)
+        mapping[role] = None if valeur == E.CANAL_ABSENT else valeur
+    mapping["etat"] = list(st.session_state.get(f"{prefixe}etat", []))
+    return mapping
+
+
 def _configuration_courante() -> dict | None:
-    if not st.session_state.get("inventaire"):
+    inventaire = st.session_state["inventaire"]
+    if not inventaire:
         return None
-    params = st.session_state.get("params")
-    if not params:
-        st.warning("Ouvre l'onglet « Hypothèses » une fois pour fixer les paramètres.")
-        return None
-    remontage_choix = {"Oui": True, "Non": False, "Non précisé": None}[
-        st.session_state.get("remontage", "Non précisé")
-    ]
+    thermique = dict(_section("t"))
+    thermique["plage_service_C"] = (
+        float(st.session_state["plage"]) if st.session_state["plage_connue"] else None
+    )
+    intercorrelation = dict(_section("i"))
+    if not intercorrelation["passe_haut_Hz"]:
+        intercorrelation["passe_haut_Hz"] = None
+
+    commun = st.session_state["mapping_commun"]
     return E.construire_dict(
         racine=st.session_state["racine"],
         dossier_sortie=st.session_state["dossier_sortie"],
@@ -518,13 +608,29 @@ def _configuration_courante() -> dict | None:
         mode_comparaison=st.session_state["mode"],
         rapport_reduction=st.session_state["rapport"],
         incertitude_reference_k1_Nm=(
-            float(st.session_state["u_ref"]) if st.session_state.get("u_ref_connue") else None
+            float(st.session_state["u_ref"]) if st.session_state["u_ref_connue"] else None
         ),
         frequence_Hz=st.session_state["freq"],
-        remontage_realise=remontage_choix,
-        canaux=st.session_state.get("canaux", {}),
-        essais=st.session_state.get("essais", {}),
-        **params,
+        remontage_realise={"Oui": True, "Non": False, "Non précisé": None}[
+            st.session_state["remontage"]
+        ],
+        canaux={} if commun else {
+            d: _mapping_depuis_widgets(f"canal::{d}::") for d in inventaire
+        },
+        canaux_communs=_mapping_depuis_widgets("gcanal::") if commun else None,
+        essais={
+            d: {
+                "type": st.session_state.get(f"type::{d}", E.type_propose(d)),
+                "ligne_droite": bool(st.session_state.get(f"ld::{d}", False)),
+                "groupe_remontage": st.session_state.get(f"gr::{d}") or None,
+            }
+            for d in inventaire
+        },
+        paliers=_section("p"),
+        intercorrelation=intercorrelation,
+        zero=_section("z"),
+        thermique=thermique,
+        diagnostic=_section("d"),
     )
 
 
@@ -544,17 +650,24 @@ with onglets[4]:
             for avertissement in cfg.verifier_saisies():
                 st.info(avertissement)
 
-            c1, c2 = st.columns([1, 2])
+            c1, c2, c3 = st.columns(3)
             with c1:
                 lancer_analyse = st.button("Lancer l'analyse", type="primary",
                                            use_container_width=True)
             with c2:
+                if st.button("Enregistrer la configuration", use_container_width=True,
+                             help="Écrit config/correlation.yaml sur le poste. "
+                             "Un rafraîchissement de page ne coûtera plus la saisie."):
+                    FICHIER_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+                    FICHIER_CONFIG.write_text(E.vers_yaml(configuration), encoding="utf-8")
+                    st.success(f"Enregistré : {FICHIER_CONFIG}")
+            with c3:
                 st.download_button(
-                    "Télécharger la configuration (.yaml)",
+                    "Télécharger (.yaml)",
                     data=E.vers_yaml(configuration).encode("utf-8"),
                     file_name="correlation.yaml", mime="text/yaml",
                     use_container_width=True,
-                    help="Rejoue à l'identique en ligne de commande : "
+                    help="Rejoue à l'identique : "
                     "python scripts/02_analyse.py --config correlation.yaml",
                 )
 
@@ -568,17 +681,16 @@ with onglets[4]:
                         suivi.update(label="Analyse terminée", state="complete", expanded=False)
                     st.session_state["campagne"] = campagne
                     st.session_state["rapport_chemin"] = str(chemin)
-                    st.rerun()  # rafraîchit l'indicateur d'étape de la barre latérale
+                    st.rerun()
                 except Exception as exc:
                     st.session_state["campagne"] = None
                     st.error(f"Échec de l'analyse : {exc}")
 
-    campagne = st.session_state.get("campagne")
+    campagne = st.session_state["campagne"]
     if campagne is not None:
         pe = campagne.config.pleine_echelle_Nm
         st.divider()
 
-        # -- quatre chiffres clés ------------------------------------------
         balayage = next(
             (e for e in campagne.par_type("balayage")
              if e.regression and not e.regression.non_calculable), None
@@ -591,13 +703,16 @@ with onglets[4]:
         inc = campagne.incertitude
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Offset b", _valeur(100 * reg.b / pe, 3, True, " % PE") if reg else "non calculable")
+        m1.metric("Offset b",
+                  _valeur(100 * reg.b / pe, 3, True, " % PE") if reg else "non calculable")
         m2.metric("Erreur de sensibilité",
                   _valeur(100 * (reg.a - 1), 3, True, " %") if reg else "non calculable")
         m3.metric("Retard temporel",
-                  _valeur(sorted(retards)[len(retards) // 2], 1, True, " ms") if retards else "non calculable")
+                  _valeur(sorted(retards)[len(retards) // 2], 1, True, " ms")
+                  if retards else "non calculable")
         m4.metric("Incertitude élargie (k=2)",
-                  _valeur(inc.U_k2_pc_pe, 3, False, " % PE") if inc and not inc.non_calculable else "non calculable")
+                  _valeur(inc.U_k2_pc_pe, 3, False, " % PE")
+                  if inc and not inc.non_calculable else "non calculable")
         if inc and inc.minorant:
             # Pas de `delta=` : Streamlit y accolerait une flèche de tendance, qui
             # se lirait comme une hausse alors qu'il s'agit d'un avertissement.
@@ -611,7 +726,6 @@ with onglets[4]:
         st.divider()
         vues = st.tabs(["Tableau récapitulatif", "Conclusions", "Figures",
                         "Incertitude", "Cartes de contrôle", "Détail par essai", "Export"])
-
         with vues[0]:
             st.markdown(R.tableau_recapitulatif(campagne))
         with vues[1]:
@@ -633,9 +747,8 @@ with onglets[4]:
         with vues[5]:
             st.markdown(R.section_detail_essais(campagne))
         with vues[6]:
-            texte = R.rediger(campagne)
             st.download_button(
-                "Rapport Markdown (.md)", data=texte.encode("utf-8"),
+                "Rapport Markdown (.md)", data=R.rediger(campagne).encode("utf-8"),
                 file_name="chapitre10_correlation.md", mime="text/markdown",
                 use_container_width=True,
             )

@@ -71,30 +71,45 @@ class DonneesFichier:
         return self.mesure - self.reference
 
 
-def _voie_comparee(mode: str, gauche, droite) -> tuple[np.ndarray, str]:
-    """Construit la voie mesurée confrontée à la référence, selon le mode configuré."""
-    if mode == "gauche":
-        if gauche is None:
-            raise ErreurChargement("comparaison.mode = 'gauche' mais le canal gauche est absent.")
-        return gauche, "voie gauche"
-    if mode == "droite":
-        if droite is None:
-            raise ErreurChargement("comparaison.mode = 'droite' mais le canal droit est absent.")
-        return droite, "voie droite"
+def _combiner(
+    mode: str, gauche, droite, unique, grandeur: str
+) -> tuple[np.ndarray, str]:
+    """Construit le signal comparé à partir des voies disponibles.
+
+    Le mode s'applique **de la même façon au couple mesuré et au couple de
+    référence** : comparer la moyenne de deux voies mesurées à la somme de deux
+    voies de référence n'aurait aucun sens.
+
+    Ordre de résolution : si les deux voies gauche/droite existent, le mode
+    tranche ; sinon on retombe sur la voie unique, ou sur la seule voie latérale
+    disponible.
+    """
     if gauche is not None and droite is not None:
+        if mode == "gauche":
+            return gauche, f"{grandeur} : voie gauche"
+        if mode == "droite":
+            return droite, f"{grandeur} : voie droite"
         if mode == "somme":
-            return gauche + droite, "somme des deux voies"
-        return 0.5 * (gauche + droite), "moyenne des deux voies"
-    unique = gauche if gauche is not None else droite
-    if unique is None:
-        raise ErreurChargement("aucune voie de couple mesuré disponible.")
-    cote = "gauche" if gauche is not None else "droite"
-    warnings.warn(
-        f"mode '{mode}' demandé mais une seule voie ({cote}) est disponible : "
-        "cette voie est utilisée telle quelle.",
-        stacklevel=2,
-    )
-    return unique, f"voie {cote} (voie unique disponible)"
+            return gauche + droite, f"{grandeur} : somme des deux voies"
+        return 0.5 * (gauche + droite), f"{grandeur} : moyenne des deux voies"
+
+    if mode in ("gauche", "droite"):
+        choisie = gauche if mode == "gauche" else droite
+        if choisie is not None:
+            return choisie, f"{grandeur} : voie {mode}"
+
+    repli = unique if unique is not None else (gauche if gauche is not None else droite)
+    if repli is None:
+        raise ErreurChargement(f"aucune voie disponible pour le {grandeur}.")
+    if gauche is not None or droite is not None:
+        cote = "gauche" if gauche is not None else "droite"
+        warnings.warn(
+            f"mode « {mode} » demandé pour le {grandeur} mais une seule voie ({cote}) "
+            "est disponible : cette voie est utilisée telle quelle.",
+            stacklevel=2,
+        )
+        return repli, f"{grandeur} : voie {cote} (seule voie disponible)"
+    return repli, f"{grandeur} : voie unique"
 
 
 def preparer(chemin: Path, cfg: Config, mapping) -> DonneesFichier:
@@ -106,12 +121,16 @@ def preparer(chemin: Path, cfg: Config, mapping) -> DonneesFichier:
     configuration retenue pour cette campagne) l'opération est neutre.
     """
     signaux = charger_signaux(chemin, mapping, cfg.frequence_Hz)
-    reference = signaux.a("couple_reference")
-    if reference is None:
-        raise ErreurChargement(f"{chemin.name} : canal de couple de référence non mappé.")
     gauche = signaux.a("couple_mesure_gauche")
     droite = signaux.a("couple_mesure_droite")
-    mesure, _ = _voie_comparee(cfg.mode_comparaison, gauche, droite)
+    mesure, _ = _combiner(cfg.mode_comparaison, gauche, droite, None, "couple mesuré")
+    reference, _ = _combiner(
+        cfg.mode_comparaison,
+        signaux.a("couple_reference_gauche"),
+        signaux.a("couple_reference_droite"),
+        signaux.a("couple_reference"),
+        "couple de référence",
+    )
     return DonneesFichier(
         chemin=chemin,
         t=signaux.t,
@@ -209,10 +228,10 @@ def traiter_essai(essai: DeclarationEssai, cfg: Config, dossier_figures: Path) -
     if not fichiers:
         resultat.erreurs.append(f"aucun fichier .mf4 trouvé dans {chemin}")
         return resultat
-    if not mapping.couple_reference or not mapping.voies_couple_mesure:
+    if not mapping.a_reference or not mapping.voies_couple_mesure:
+        manquant = "couple de référence" if not mapping.a_reference else "couple mesuré"
         resultat.erreurs.append(
-            f"mapping incomplet ({'couple_reference' if not mapping.couple_reference else 'couple mesuré'} "
-            "non renseigné) : essai non exploitable"
+            f"mapping incomplet ({manquant} non renseigné) : essai non exploitable"
         )
         return resultat
 

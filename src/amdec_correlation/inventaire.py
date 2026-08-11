@@ -26,19 +26,35 @@ from .io_mdf import DescriptionCanal, decrire_canaux, lister_fichiers
 
 # Motifs de repérage des candidats. Volontairement larges : mieux vaut proposer
 # plusieurs candidats à trancher que de rater le bon canal.
-MOTIFS: dict[str, tuple[str, ...]] = {
-    "couple_mesure_gauche": (r"(couple|torque|trq|tq)", r"(gauche|left|\bg\b|_g_|_g$|_l$|lh)"),
-    "couple_mesure_droite": (r"(couple|torque|trq|tq)", r"(droit|right|\bd\b|_d_|_d$|_r$|rh)"),
-    "couple_reference": (r"(couple|torque|trq|tq)", r"(ref|banc|bench|gmp|consigne|cible|target)"),
-    "regime": (r"(regime|rpm|speed|vitesse|omega|roue|wheel|tr[_/ ]?min|^n[_ ]|[_ ]n$)",),
-    "temperature": (r"(temp|tmp|therm|degc|\bt°|^t[_ ]|[_ ]t[_ ])",),
-    "etat": (r"(led|crc|err|erreur|fault|status|statut|etat|state|diag|qualit|valid)",),
+#
+# `exclut` est indispensable pour séparer les voies mesurées des voies de
+# référence : sans lui, un canal nommé « Trq_Ref_BancGMP_G » serait proposé à la
+# fois comme couple mesuré gauche et comme référence gauche.
+COUPLE = r"(couple|torque|trq|tq|cpl)"
+REFERENCE = r"(ref|banc|bench|gmp|consigne|cible|target)"
+GAUCHE = r"(gauche|left|\bg\b|_g_|_g$|_l$|lh)"
+DROITE = r"(droit|right|\bd\b|_d_|_d$|_r$|rh)"
+
+MOTIFS: dict[str, dict[str, tuple[str, ...]]] = {
+    "couple_mesure_gauche": {"inclut": (COUPLE, GAUCHE), "exclut": (REFERENCE,)},
+    "couple_mesure_droite": {"inclut": (COUPLE, DROITE), "exclut": (REFERENCE,)},
+    "couple_reference_gauche": {"inclut": (COUPLE, REFERENCE, GAUCHE), "exclut": ()},
+    "couple_reference_droite": {"inclut": (COUPLE, REFERENCE, DROITE), "exclut": ()},
+    # Référence en voie unique : on écarte ce qui porte déjà une latéralité.
+    "couple_reference": {"inclut": (COUPLE, REFERENCE), "exclut": (GAUCHE, DROITE)},
+    "regime": {"inclut": (r"(regime|rpm|speed|vitesse|omega|roue|wheel|tr[_/ ]?min|^n[_ ]|[_ ]n$)",),
+               "exclut": ()},
+    "temperature": {"inclut": (r"(temp|tmp|therm|degc|\bt°|^t[_ ]|[_ ]t[_ ])",), "exclut": ()},
+    "etat": {"inclut": (r"(led|crc|err|erreur|fault|status|statut|etat|state|diag|qualit|valid)",),
+             "exclut": ()},
 }
 
 
-def _correspond(nom: str, motifs: tuple[str, ...]) -> bool:
+def _correspond(nom: str, motifs: dict[str, tuple[str, ...]]) -> bool:
     n = nom.lower()
-    return all(re.search(m, n) for m in motifs)
+    if any(re.search(m, n) for m in motifs["exclut"]):
+        return False
+    return all(re.search(m, n) for m in motifs["inclut"])
 
 
 def candidats(noms: list[str]) -> dict[str, list[str]]:
@@ -215,6 +231,11 @@ def ecrire_csv(inventaires: list[InventaireDossier], chemin: Path) -> Path:
 
 def squelette_yaml(inventaires: list[InventaireDossier], racine: Path) -> str:
     """Squelette de mapping pré-rempli avec les candidats, à valider à la main."""
+    roles = (
+        "couple_mesure_gauche", "couple_mesure_droite",
+        "couple_reference", "couple_reference_gauche", "couple_reference_droite",
+        "regime", "temperature",
+    )
     lignes = [
         "# Mapping des canaux — SQUELETTE À VALIDER",
         "#",
@@ -226,11 +247,7 @@ def squelette_yaml(inventaires: list[InventaireDossier], racine: Path) -> str:
         "",
         "canaux:",
         "  defaut:",
-        "    couple_mesure_gauche: null",
-        "    couple_mesure_droite: null",
-        "    couple_reference: null",
-        "    regime: null",
-        "    temperature: null",
+        *[f"    {role}: null" for role in roles],
         "    etat: []",
         "",
         "  par_dossier:",
@@ -242,8 +259,7 @@ def squelette_yaml(inventaires: list[InventaireDossier], racine: Path) -> str:
             lignes.append("      {}")
             continue
         propositions = candidats(inv.noms_uniques)
-        for cle in ("couple_mesure_gauche", "couple_mesure_droite", "couple_reference",
-                    "regime", "temperature"):
+        for cle in roles:
             noms = propositions[cle]
             if noms:
                 autres = f"  # AUTRES CANDIDATS : {', '.join(noms[1:])}" if len(noms) > 1 else ""
