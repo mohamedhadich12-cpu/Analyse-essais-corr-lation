@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Rafraîchit les captures d'écran du guide utilisateur.
+
+À relancer après toute évolution visible de l'interface, sinon le guide décrit
+un écran qui n'existe plus.
+
+Mode d'emploi, depuis la racine du projet :
+
+    1. générer un jeu de données de démonstration :
+       python tests/generer_mf4_synthetique.py --sortie donnees_synthetiques
+
+    2. lancer l'interface DEPUIS LA RACINE, pour que `.streamlit/config.toml`
+       s'applique — sans quoi les captures montreraient le thème par défaut de
+       Streamlit et non celui du projet :
+       python -m streamlit run src/amdec_correlation/interface/app.py --server.port 8511
+
+    3. dans une autre fenêtre :
+       python docs/source/captures.py
+
+    4. reconstruire le PDF :
+       python docs/construire_guide.py
+
+Prérequis : `python -m pip install playwright && python -m playwright install chromium`.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+RACINE = Path(__file__).resolve().parents[2]
+IMAGES = Path(__file__).resolve().parent / "img"
+
+
+def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as pilote:
+        navigateur = pilote.chromium.launch()
+        # Facteur 2 : les captures restent nettes une fois réduites dans le PDF.
+        page = navigateur.new_page(
+            viewport={"width": 1440, "height": 1000}, device_scale_factor=2
+        )
+        page.goto(url, wait_until="networkidle", timeout=90_000)
+        page.wait_for_timeout(4000)
+
+        champs = page.locator('section[data-testid="stSidebar"] input[type="text"]')
+        champs.nth(0).fill(str(racine_donnees)); champs.nth(0).press("Enter")
+        page.wait_for_timeout(2500)
+        champs.nth(1).fill(str(dossier_sortie)); champs.nth(1).press("Enter")
+        page.wait_for_timeout(2500)
+        page.get_by_role("button", name="Inventorier les canaux").click()
+        page.wait_for_timeout(11_000)
+
+        zone = page.locator("div.block-container").first
+
+        def onglet(nom: str, attente: int = 3000) -> None:
+            page.get_by_role("tab", name=nom).click()
+            page.wait_for_timeout(attente)
+
+        onglet("1 · Exploration")
+        page.get_by_text("1-Balayage Couple — 1 fichier(s)").click()
+        page.wait_for_timeout(2500)
+        zone.screenshot(path=str(IMAGES / "01_exploration.png"))
+
+        onglet("2 · Canaux", 3500); zone.screenshot(path=str(IMAGES / "02_canaux.png"))
+        onglet("3 · Essais");       zone.screenshot(path=str(IMAGES / "03_essais.png"))
+        onglet("4 · Hypothèses");   zone.screenshot(path=str(IMAGES / "04_hypotheses.png"))
+
+        onglet("5 · Analyse & résultats", 3500)
+        page.get_by_role("button", name="Lancer l'analyse").click()
+        page.wait_for_timeout(50_000)
+        zone.screenshot(path=str(IMAGES / "05_resultats.png"))
+        onglet("Cartes de contrôle");  zone.screenshot(path=str(IMAGES / "07_spc.png"))
+        navigateur.close()
+
+    # Une vraie figure d'analyse vaut mieux qu'une capture de l'onglet Figures.
+    figure = dossier_sortie / "figures" / "1_balayage_couple_regression.png"
+    if figure.is_file():
+        (IMAGES / "08_figure_exemple.png").write_bytes(figure.read_bytes())
+    print(f"Captures écrites dans {IMAGES}")
+
+
+if __name__ == "__main__":
+    parseur = argparse.ArgumentParser(description=__doc__,
+                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parseur.add_argument("--url", default="http://localhost:8511")
+    parseur.add_argument("--donnees", default=str(RACINE / "donnees_synthetiques"))
+    parseur.add_argument("--sortie", default=str(RACINE / "sortie_guide"))
+    args = parseur.parse_args()
+    capturer(args.url, Path(args.donnees), Path(args.sortie))

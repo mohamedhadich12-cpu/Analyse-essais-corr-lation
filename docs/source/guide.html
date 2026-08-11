@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Guide — Corrélation couple transmissions / banc GMP</title>
+<style>
+  :root{
+    --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+    --bon:#0ca30c; --attention:#fab219; --critique:#d03b3b;
+  }
+  @page{ size:A4; margin:17mm 15mm 18mm; }
+  *{ box-sizing:border-box; }
+  body{
+    font-family:"DejaVu Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:var(--ink); background:var(--surface);
+    font-size:9.6pt; line-height:1.55; margin:0;
+  }
+  h1,h2,h3,h4{ line-height:1.25; margin:0 0 .4em; }
+  /* Un titre ne doit jamais rester seul en bas de page. */
+  h2,h3,h4{ break-after:avoid; }
+  h1{ font-size:23pt; letter-spacing:-.01em; }
+  h2{ font-size:14pt; margin-top:0; padding-bottom:.28em; border-bottom:2px solid var(--s1); }
+  h3{ font-size:11pt; margin-top:1.5em; color:var(--ink); }
+  h4{ font-size:9.8pt; margin-top:1.15em; color:var(--ink2); }
+  p{ margin:0 0 .65em; }
+  ul,ol{ margin:0 0 .7em; padding-left:1.15em; }
+  li{ margin-bottom:.22em; }
+  code{ font-family:"DejaVu Sans Mono",ui-monospace,Consolas,monospace; font-size:8.4pt;
+        background:#f3f2ee; padding:.08em .3em; border-radius:3px; }
+  strong{ font-weight:600; }
+  a{ color:var(--s1); text-decoration:none; }
+
+  .section{ break-before:page; }
+  .nobreak{ break-inside:avoid; }
+
+  /* Couverture */
+  .couv{ height:252mm; display:flex; flex-direction:column; justify-content:center; }
+  .couv .barre{ width:52mm; height:4px; background:var(--s1); margin-bottom:9mm; }
+  .couv h1{ font-size:29pt; margin-bottom:.28em; }
+  .couv .st{ font-size:13pt; color:var(--ink2); font-weight:400; margin-bottom:11mm; }
+  .couv .meta{ font-size:9pt; color:var(--muted); border-top:1px solid var(--grid);
+               padding-top:5mm; margin-top:auto; }
+  .couv .resume{ font-size:10pt; color:var(--ink2); max-width:132mm; }
+
+  /* Tableaux */
+  table{ width:100%; border-collapse:collapse; margin:.5em 0 1em; font-size:8.6pt;
+         break-inside:avoid; }
+  th{ text-align:left; font-weight:600; color:var(--ink2); background:#f3f2ee;
+      border-bottom:1px solid var(--axis); padding:.42em .55em; vertical-align:bottom; }
+  td{ padding:.42em .55em; border-bottom:1px solid var(--grid); vertical-align:top; }
+  tr:last-child td{ border-bottom:1px solid var(--axis); }
+  td.num{ font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+  /* Encadrés */
+  .note,.garde,.astuce{ padding:.6em .85em; margin:.7em 0 1em; font-size:8.9pt;
+        border-left:3px solid var(--s1); background:#f6f8fd; break-inside:avoid; }
+  .garde{ border-left-color:var(--attention); background:#fdf8ec; }
+  .astuce{ border-left-color:var(--s3); background:#f1faf6; }
+  .note p:last-child,.garde p:last-child,.astuce p:last-child{ margin-bottom:0; }
+  .etiq{ font-weight:600; }
+
+  /* Figures */
+  figure{ margin:.6em 0 1.1em; break-inside:avoid; text-align:center; }
+  /* Hauteur plafonnée pour qu'une figure tienne toujours dans une page, sans
+     déformer l'image : la largeur suit. */
+  figure img{ max-width:100%; max-height:178mm; width:auto; height:auto;
+              border:1px solid var(--grid); border-radius:4px; display:block;
+              margin:0 auto; }
+  figcaption{ font-size:8.1pt; color:var(--muted); margin-top:.35em; text-align:left; }
+
+  /* Fiche indicateur */
+  .fiche{ border:1px solid var(--grid); border-radius:5px; padding:.75em .9em;
+          margin:.55em 0 1.05em; break-inside:avoid; }
+  .fiche h3{ margin:0 0 .45em; font-size:10.4pt; color:var(--s1); }
+  .fiche dl{ margin:0; display:grid; grid-template-columns:26mm 1fr; gap:.24em .7em; }
+  .fiche dt{ font-weight:600; color:var(--ink2); font-size:8.5pt; }
+  .fiche dd{ margin:0; font-size:8.8pt; }
+  .formule{ font-family:"DejaVu Sans Mono",monospace; font-size:8.5pt;
+            background:#f3f2ee; padding:.3em .5em; border-radius:3px; display:inline-block; }
+
+  .sommaire ol{ list-style:none; padding:0; counter-reset:s; }
+  .sommaire > ol > li{ counter-increment:s; padding:.3em 0; border-bottom:1px solid var(--grid);
+                       font-size:10pt; }
+  .sommaire > ol > li::before{ content:counter(s) ". "; color:var(--s1); font-weight:600; }
+  .sommaire span{ color:var(--muted); font-size:8.6pt; display:block; padding-left:1.1em; }
+
+  .pastille{ display:inline-block; width:.55em; height:.55em; border-radius:50%;
+             margin-right:.35em; vertical-align:baseline; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ COUVERTURE ══════════════════ -->
+<div class="couv">
+  <div class="barre"></div>
+  <h1>Corrélation couple<br>transmissions ↔ banc GMP</h1>
+  <div class="st">Guide d'utilisation — interface, types d'essai et indicateurs</div>
+  <p class="resume">
+    Cet outil compare le couple mesuré par les transmissions instrumentées
+    (télémétrie Manner PCM16) au couple de référence du banc GMP, et produit les
+    indicateurs métrologiques du <strong>chapitre 10</strong> du rapport AMDEC ainsi que
+    les paramètres de cartes de contrôle du <strong>chapitre 11</strong>.
+  </p>
+  <p class="resume">
+    Il tient deux engagements : les acquisitions <strong>ne sont jamais modifiées</strong>,
+    et aucune grandeur n'est <strong>jamais estimée</strong> — ce qui ne peut pas être calculé
+    est annoncé comme tel, avec son motif.
+  </p>
+  <div class="meta">
+    Document de référence — à lire avant la première utilisation<br>
+    Les captures d'écran proviennent d'un jeu de données synthétique de validation ;
+    les valeurs qui y figurent n'ont aucune signification métrologique.
+  </div>
+</div>
+
+<!-- ══════════════════ SOMMAIRE ══════════════════ -->
+<div class="section">
+<h2>Sommaire</h2>
+<div class="sommaire">
+<ol>
+  <li>Principe et garanties<span>ce que l'outil fait, ce qu'il refuse de faire</span></li>
+  <li>Démarrer<span>installation, lancement, déroulé en cinq étapes</span></li>
+  <li>L'interface onglet par onglet<span>exploration, canaux, essais, hypothèses, résultats</span></li>
+  <li>Les types d'essai<span>ce que chaque type suppose et ce qu'il produit</span></li>
+  <li>Les indicateurs calculés<span>définition, méthode, hypothèses, lecture</span></li>
+  <li>Le diagnostic qualitatif<span>la grille offset / gain / synchronisation / modèle</span></li>
+  <li>Le bilan d'incertitude<span>composition, lois, facteur d'élargissement</span></li>
+  <li>Les cartes de contrôle du chapitre 11<span>μ0, σ0, CUSUM, EWMA</span></li>
+  <li>« Non calculable » : pourquoi, et que faire<span>lire un refus de calcul</span></li>
+  <li>Glossaire<span>PE, résidu, ddl, k, ARL0…</span></li>
+</ol>
+</div>
+</div>
+
+<!-- ══════════════════ 1 ══════════════════ -->
+<div class="section">
+<h2>1. Principe et garanties</h2>
+
+<p>
+L'outil lit des acquisitions au format MDF4 (<code>.mf4</code>), rangées par type d'essai
+dans des sous-dossiers. Pour chaque essai il confronte le couple mesuré par les
+transmissions instrumentées au couple de référence du banc, puis en tire les
+indicateurs du chapitre 10. Il produit un rapport Markdown et des figures PNG
+directement insérables.
+</p>
+
+<h3>Deux garanties tenues par le code</h3>
+
+<div class="garde">
+<p><span class="etiq">Lecture seule stricte.</span> Chaque <code>.mf4</code> est ouvert par un
+descripteur en lecture binaire. L'écriture est impossible au niveau du système de
+fichiers, et aucune fonction de modification de la bibliothèque MDF n'est appelée. Un test
+automatique compare les empreintes SHA-256 et les dates de modification de tous les
+fichiers avant et après une analyse complète.</p>
+</div>
+
+<div class="garde">
+<p><span class="etiq">Aucune valeur inventée.</span> Toute grandeur qui ne peut pas être
+obtenue — canal absent, excursion thermique insuffisante, pas de relevé de zéro
+identifiable, aucun essai répété — est restituée avec un <strong>motif explicite de
+non-calculabilité</strong>, repris tel quel dans le rapport. Rien n'est extrapolé, et aucune
+valeur par défaut ne se substitue à une mesure manquante.</p>
+</div>
+
+<h3>Conventions</h3>
+<table>
+  <tr><th style="width:32mm">Terme</th><th>Définition</th></tr>
+  <tr><td><strong>Résidu</strong></td>
+      <td>Toujours <span class="formule">couple mesuré − couple de référence</span>. Un résidu
+          positif signifie que les transmissions lisent plus que le banc.</td></tr>
+  <tr><td><strong>% PE</strong></td>
+      <td>Pourcentage de la <strong>pleine échelle</strong> du capteur de couple des
+          transmissions (1500 N·m par défaut). À 1500 N·m de pleine échelle,
+          1 % PE = 15 N·m.</td></tr>
+  <tr><td><strong>Voie comparée</strong></td>
+      <td>Le mode de comparaison (<code>gauche</code>, <code>droite</code>, <code>moyenne</code>,
+          <code>somme</code>) s'applique <strong>de la même façon</strong> aux voies mesurées et
+          aux voies de référence.</td></tr>
+</table>
+
+<div class="note">
+<p><span class="etiq">Pourquoi le % PE plutôt que le % de lecture.</span> L'offset, la dérive de
+zéro, l'hystérésis et la non-linéarité ne dépendent pas du couple appliqué. Rapportés à la
+lecture, ils exploseraient près de zéro et ne se résumeraient à aucun chiffre unique.
+Rapportés à l'étendue de mesure, ils tiennent en une valeur valable sur toute la plage —
+c'est la convention des fiches capteur et des certificats d'étalonnage.</p>
+</div>
+
+<h3>Le mode de comparaison</h3>
+<p>
+Le banc GMP fournit deux voies de référence, une par sortie, et les transmissions deux voies
+de mesure. Le mode dit comment les combiner :
+</p>
+<table>
+  <tr><th style="width:24mm">Mode</th><th>Couple mesuré</th><th>Couple de référence</th><th>Usage</th></tr>
+  <tr><td><code>moyenne</code></td><td class="num">(G + D) / 2</td><td class="num">(réf G + réf D) / 2</td>
+      <td>Défaut. Cohérent avec une référence prise au même point de la chaîne.</td></tr>
+  <tr><td><code>somme</code></td><td class="num">G + D</td><td class="num">réf G + réf D</td>
+      <td>Si l'on raisonne en couple total aux roues.</td></tr>
+  <tr><td><code>gauche</code></td><td class="num">G</td><td class="num">réf G</td>
+      <td>Caractérise une seule transmission, sans mélange des deux voies.</td></tr>
+  <tr><td><code>droite</code></td><td class="num">D</td><td class="num">réf D</td><td>Idem, côté droit.</td></tr>
+</table>
+
+<div class="garde">
+<p>Le mode s'applique aux deux côtés simultanément, et c'est essentiel : comparer une
+<em>somme</em> de voies mesurées à une <em>moyenne</em> de voies de référence produirait un
+facteur 2 sur l'erreur de sensibilité — une valeur fausse, mais parfaitement crédible.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 2 ══════════════════ -->
+<div class="section">
+<h2>2. Démarrer</h2>
+
+<h3>Prérequis</h3>
+<p>
+<strong>Python 3.10 à 3.13.</strong> Au-delà, l'installation échoue sur un message qui parle de
+Visual C++ : la cause réelle est l'absence de binaire précompilé pour le module de
+décompression dont dépend la lecture MDF4. Installer une version prise en charge est la
+seule solution raisonnable ; un compilateur ne se justifie pas.
+</p>
+
+<table>
+  <tr><th style="width:62mm">Commande</th><th>Effet</th></tr>
+  <tr><td><code>py -0</code></td><td>liste les versions de Python installées</td></tr>
+  <tr><td><code>py -3.13 -m venv .venv</code></td><td>crée l'environnement isolé</td></tr>
+  <tr><td><code>.venv\Scripts\activate</code></td><td>l'active (à refaire à chaque terminal)</td></tr>
+  <tr><td><code>python -m pip install -r requirements.txt</code></td><td>installe les dépendances</td></tr>
+  <tr><td><code>python -m pytest tests\ -q</code></td><td>vérifie l'installation — doit afficher <em>78 passed</em></td></tr>
+  <tr><td><code>python scripts\03_interface.py</code></td><td>lance l'interface</td></tr>
+</table>
+
+<div class="astuce">
+<p><span class="etiq">Sans activer l'environnement.</span> <code>.venv\Scripts\python.exe scripts\03_interface.py</code>
+fonctionne toujours, quelle que soit la fenêtre de terminal et sans dépendre de la politique
+d'exécution PowerShell.</p>
+</div>
+
+<h3>Vérifier l'installation sans risque</h3>
+<p>
+<code>python tests\generer_mf4_synthetique.py --sortie donnees_synthetiques</code> fabrique une
+arborescence d'essais artificiels à <strong>vérité connue</strong> : gain, offset, hystérésis,
+retard, dérive thermique et biais de remontage y sont injectés à des valeurs exactes, que les
+tests vérifient que l'outil retrouve. C'est le moyen de valider la chaîne complète avant de
+toucher aux vraies acquisitions.
+</p>
+<div class="garde">
+<p>Supprimez ce dossier avant de pointer l'outil sur vos données réelles : s'il se trouve à
+l'intérieur de votre racine d'acquisitions, il apparaîtrait comme un essai supplémentaire, et
+des valeurs fabriquées se mélangeraient à vos résultats.</p>
+</div>
+
+<h3>Le déroulé, en cinq étapes</h3>
+<table>
+  <tr><th style="width:30mm">Onglet</th><th>Ce qu'on y fait</th><th style="width:38mm">Ce qui en sort</th></tr>
+  <tr><td><strong>1 · Exploration</strong></td><td>lire les acquisitions, découvrir les canaux réellement présents</td><td>liste des canaux, unités, cadences, bases de temps</td></tr>
+  <tr><td><strong>2 · Canaux</strong></td><td>associer chaque rôle à un canal réel</td><td>le mapping</td></tr>
+  <tr><td><strong>3 · Essais</strong></td><td>déclarer le type de chaque essai et ses conditions</td><td>le plan de traitement</td></tr>
+  <tr><td><strong>4 · Hypothèses</strong></td><td>fixer les bornes de traitement et les deux saisies utilisateur</td><td>les hypothèses citées dans le rapport</td></tr>
+  <tr><td><strong>5 · Analyse</strong></td><td>lancer, lire, exporter</td><td>rapport Markdown + figures PNG</td></tr>
+</table>
+
+<div class="note">
+<p><span class="etiq">L'interface ne calcule rien.</span> Elle assemble une configuration, appelle
+la bibliothèque et affiche ce qui en sort. Les chiffres à l'écran <em>sont</em> ceux du rapport.
+La configuration se télécharge en YAML et rejoue à l'identique en ligne de commande —
+<code>python scripts\02_analyse.py --config correlation.yaml</code> — ce qui permet de mettre au
+point les réglages à la souris puis de rejouer en lot, ou de verser le YAML au dossier
+d'essai comme trace de ce qui a été fait.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 3 ══════════════════ -->
+<div class="section">
+<h2>3. L'interface, onglet par onglet</h2>
+
+<h3>3.1 — Exploration</h3>
+<p>
+L'outil lit un échantillon de fichiers par sous-dossier et liste tous les canaux présents,
+avec leur unité, leur groupe, leur nombre d'échantillons, leur cadence et leur plage de
+temps. <strong>C'est ce relevé qui sert à confirmer les libellés</strong> — rien n'est supposé
+d'une convention de nommage.
+</p>
+
+<figure>
+  <img src="img/01_exploration.png" alt="Onglet Exploration : liste des canaux d'un essai">
+  <figcaption>Onglet 1 — chaque sous-dossier se déplie sur la liste complète de ses canaux.</figcaption>
+</figure>
+
+<p>Deux avertissements peuvent apparaître ici, et tous deux méritent attention :</p>
+<ul>
+  <li><strong>Jeux de canaux différents</strong> entre les fichiers d'un même dossier : le mapping
+      devra être vérifié fichier par fichier.</li>
+  <li><strong>Plusieurs groupes de canaux</strong> : dans un MDF4, chaque groupe possède son propre
+      canal maître, donc sa propre horloge. Les canaux ne partagent alors pas la même base de
+      temps, et l'outil les ramène sur une grille commune — intersection des plages, aucune
+      extrapolation, interpolation linéaire pour les grandeurs physiques et maintien de la
+      dernière valeur pour les canaux d'état.</li>
+</ul>
+
+<h3>3.2 — Canaux</h3>
+<p>
+Chaque rôle se choisit dans une liste déroulante <strong>peuplée des noms réellement trouvés</strong>
+dans les acquisitions : aucun libellé n'est à recopier, ce qui supprime la première source
+d'erreur de tout l'outil. Les valeurs pré-sélectionnées sont des <strong>candidats</strong> repérés
+par mots-clés — à vérifier ligne par ligne, jamais des certitudes.
+</p>
+
+<figure>
+  <img src="img/02_canaux.png" alt="Onglet Canaux : mapping commun à toute la campagne">
+  <figcaption>Onglet 2 — mapping commun. Quatre voies de couple : mesuré gauche et droite,
+    référence banc gauche et droite.</figcaption>
+</figure>
+
+<table>
+  <tr><th style="width:52mm">Rôle</th><th>Rôle dans les calculs</th></tr>
+  <tr><td>Couple mesuré gauche / droite</td><td>la grandeur caractérisée. Deux voies permettent en outre le contrôle de redondance.</td></tr>
+  <tr><td>Couple de référence gauche / droite</td><td>la référence banc, une voie par sortie.</td></tr>
+  <tr><td>Couple de référence — voie unique</td><td><strong>repli</strong> si le banc ne fournit qu'une seule voie. Ignoré dès que les deux voies latérales sont renseignées.</td></tr>
+  <tr><td>Régime</td><td>détection du repos (dérive de zéro) et corrélation résidu / point de fonctionnement.</td></tr>
+  <tr><td>Température</td><td>sensibilité thermique. Arbre, capteur ou électronique rotor.</td></tr>
+  <tr><td>Canaux d'état</td><td>LED télémétrie, CRC, compteurs d'erreurs. Relevés et restitués <strong>sans interprétation</strong> : la valeur nominale n'est pas connue de l'outil.</td></tr>
+</table>
+
+<div class="astuce">
+<p><span class="etiq">Mapping commun.</span> Si les libellés sont identiques sur toute la campagne
+— le cas courant — la case en haut permet de tout déclarer une seule fois. Décochez-la
+seulement si les noms diffèrent d'un dossier à l'autre.</p>
+</div>
+
+<div class="note">
+<p><span class="etiq">« — absent — » est une réponse valide.</span> Marquer un canal absent rend
+explicitement <em>non calculables</em> les grandeurs qui en dépendent, plutôt que de les estimer.
+C'est toujours préférable à un mapping approximatif.</p>
+</div>
+
+<h3>3.3 — Essais</h3>
+<figure>
+  <img src="img/03_essais.png" alt="Onglet Essais : type, ligne droite, groupe de remontage">
+  <figcaption>Onglet 3 — trois décisions par essai, dont deux conditionnent l'existence
+    d'indicateurs entiers.</figcaption>
+</figure>
+
+<table>
+  <tr><th style="width:34mm">Champ</th><th>Ce qu'il commande</th></tr>
+  <tr><td><strong>Type</strong></td>
+      <td>Le traitement appliqué. Voir le chapitre 4.</td></tr>
+  <tr><td><strong>Ligne droite</strong></td>
+      <td>À cocher si les deux transmissions voient le même couple <em>par construction</em>. Sur
+      banc, cela revient à : les deux sorties sont-elles chargées symétriquement ? C'est la
+      condition pour que le résidu gauche − droite soit un indicateur métrologique et non un
+      écart physique réel. À laisser décoché sur tout essai sollicitant volontairement le
+      différentiel, ou s'accompagnant de patinage avec intervention de l'antipatinage d'un
+      seul côté.</td></tr>
+  <tr><td><strong>Groupe de remontage</strong></td>
+      <td>Étiquette libre (« avant » / « apres »). Il en faut <strong>deux distinctes</strong> dans la
+      campagne pour que la répétabilité après remontage existe.</td></tr>
+</table>
+
+<h3>3.4 — Hypothèses</h3>
+<figure>
+  <img src="img/04_hypotheses.png" alt="Onglet Hypothèses : saisies utilisateur et bornes de traitement">
+  <figcaption>Onglet 4 — toutes ces valeurs sont reprises telles quelles dans le § Hypothèses
+    du rapport.</figcaption>
+</figure>
+
+<p>
+En haut, <strong>deux saisies utilisateur</strong> qu'aucun traitement du signal ne peut produire :
+</p>
+<ul>
+  <li><strong>L'incertitude-type du banc (k = 1)</strong>, à reprendre du certificat d'étalonnage.
+      Attention au facteur : les certificats annoncent presque toujours une incertitude
+      <em>élargie</em> à k = 2 — dans ce cas, saisir la moitié.</li>
+  <li><strong>La plage de température de service</strong>, qui est un choix de domaine d'emploi et non
+      une grandeur mesurable. L'excursion constatée sur les essais ne peut pas en tenir lieu :
+      elle décrit la campagne, pas les conditions de service.</li>
+</ul>
+<p>
+Laissées vides, leur contribution est exclue du bilan, qui est alors explicitement annoncé
+comme un <strong>minorant</strong>, avec la liste des exclusions. Le rapport reste juste,
+seulement moins complet.
+</p>
+
+<h3>3.5 — Analyse et résultats</h3>
+<figure>
+  <img src="img/05_resultats.png" alt="Onglet Analyse : chiffres clés et tableau récapitulatif">
+  <figcaption>Onglet 5 — quatre chiffres clés, puis le tableau récapitulatif du chapitre 10.</figcaption>
+</figure>
+
+<p>Sept vues sont disponibles après l'analyse :</p>
+<table>
+  <tr><th style="width:38mm">Vue</th><th>Contenu</th></tr>
+  <tr><td>Tableau récapitulatif</td><td>les neuf lignes du chapitre 10, avec valeur et commentaire</td></tr>
+  <tr><td>Conclusions</td><td>une conclusion rédigée par essai dynamique, collable telle quelle</td></tr>
+  <tr><td>Figures</td><td>toutes les figures produites</td></tr>
+  <tr><td>Incertitude</td><td>le bilan détaillé, contribution par contribution</td></tr>
+  <tr><td>Cartes de contrôle</td><td>μ0, σ0 et les seuils CUSUM / EWMA du chapitre 11</td></tr>
+  <tr><td>Détail par essai</td><td>tout ce qui a été calculé, essai par essai, y compris les échecs</td></tr>
+  <tr><td>Export</td><td>rapport Markdown et archive des figures PNG</td></tr>
+</table>
+
+<div class="astuce">
+<p><span class="etiq">Enregistrez votre configuration.</span> Le bouton <em>Enregistrer la
+configuration</em> écrit un fichier sur le poste ; la barre latérale propose ensuite de la
+<em>Recharger</em>. Un rafraîchissement de page ne coûte alors plus la saisie.</p>
+</div>
+
+<figure>
+  <img src="img/08_figure_exemple.png" alt="Figure de régression du balayage couple">
+  <figcaption>Exemple de figure produite : régression du balayage couple, avec le panneau des
+    résidus. Écrite en PNG dans le dossier de sortie, prête pour le rapport.</figcaption>
+</figure>
+</div>
+
+<!-- ══════════════════ 4 ══════════════════ -->
+<div class="section">
+<h2>4. Les types d'essai</h2>
+
+<p>
+Le type déclaré détermine le traitement. Trois types existent ; le choix se fait sur la
+<strong>nature des données</strong>, pas sur le nom de l'essai.
+</p>
+
+<div class="fiche">
+<h3>balayage</h3>
+<dl>
+  <dt>Données attendues</dt><dd>points stabilisés parcourus en montée <em>puis</em> en descente</dd>
+  <dt>Produit</dt><dd>régression, offset <em>b</em>, erreur de sensibilité <em>a</em> − 1,
+      non-linéarité, hystérésis</dd>
+  <dt>Sans montée<br>et descente</dt><dd>l'hystérésis est déclarée non calculable ; le reste est produit</dd>
+</dl>
+<p style="margin-top:.5em">C'est l'essai de référence du chapitre 10 : il donne l'offset et le gain,
+qui sont des caractéristiques du capteur et non de l'essai. Étant statique, il est
+insensible à tout défaut de synchronisation — d'où sa valeur pour trancher entre gain et
+retard.</p>
+</div>
+
+<div class="fiche">
+<h3>repetabilite</h3>
+<dl>
+  <dt>Données attendues</dt><dd>points stabilisés <strong>répétés</strong> au même couple de référence,
+      à température stabilisée</dd>
+  <dt>Produit</dt><dd>dispersion du résidu à couple constant ; alimente σ0 des cartes de contrôle</dd>
+  <dt>Condition</dt><dd>il faut au moins <strong>deux</strong> paliers au même niveau de couple
+      (tolérance de regroupement réglable). Les répétitions peuvent venir de fichiers différents
+      du même dossier.</dd>
+</dl>
+<div class="garde" style="margin:.55em 0 0">
+<p>Sur un essai <strong>iso-puissance</strong>, le couple varie d'un point à l'autre en suivant
+l'inverse du régime : deux points d'un même relevé ne sont donc pas au même couple de
+référence. La répétabilité n'y est calculable que si le dossier contient plusieurs relevés
+couvrant les mêmes points de fonctionnement.</p>
+</div>
+</div>
+
+<div class="fiche">
+<h3>dynamique</h3>
+<dl>
+  <dt>Données attendues</dt><dd>cycle ou transitoire, avec de vraies variations de couple</dd>
+  <dt>Produit</dt><dd>recalage temporel par intercorrélation, et la conclusion qualitative</dd>
+  <dt>Condition</dt><dd>une plage réellement dynamique assez longue ; sur un signal quasi
+      stationnaire, le pic d'intercorrélation est plat et le retard n'est pas identifiable</dd>
+</dl>
+<p style="margin-top:.5em">C'est aussi le repli le moins risqué en cas de doute : il ne présuppose
+pas de points stabilisés, donc ne fabrique pas de paliers illusoires sur un essai qui n'en
+comporte pas.</p>
+</div>
+
+<h3>Application à la campagne</h3>
+<table>
+  <tr><th style="width:58mm">Dossier d'essai</th><th style="width:26mm">Type</th><th>Motif</th></tr>
+  <tr><td>1-Balayage Couple</td><td><code>balayage</code></td><td>points stabilisés croissants puis décroissants</td></tr>
+  <tr><td>2-CPC 20 °C</td><td><code>repetabilite</code></td><td>essai répété à température stabilisée</td></tr>
+  <tr><td>3-4_1000M_DA</td><td><code>dynamique</code></td><td>départ arrêté sur 1 km. Le front de couple au décollage est la sollicitation la plus franche de la campagne, donc le meilleur support d'identification du retard</td></tr>
+  <tr><td>4-iso Pwr_traction MaV_statique</td><td><code>repetabilite</code></td><td>points stabilisés à iso-puissance</td></tr>
+  <tr><td>5-Décollage en pente</td><td><code>dynamique</code></td><td>transitoire</td></tr>
+  <tr><td>6-iso Pwr_traction MaV_dynamique</td><td><code>dynamique</code></td><td>transitoire</td></tr>
+  <tr><td>7-WLTC</td><td><code>dynamique</code></td><td>cycle</td></tr>
+</table>
+
+<div class="astuce">
+<p><span class="etiq">Un couple d'essais à exploiter.</span> Les essais iso-puissance statique et
+dynamique parcourent les mêmes points de fonctionnement, l'un en stabilisé, l'autre en
+transitoire. Un écart présent en dynamique mais absent en statique aux mêmes points signe la
+synchronisation ; un écart présent dans les deux signe un écart de modèle. Le rapport donne
+les deux régressions côte à côte dans le détail par essai.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 5 ══════════════════ -->
+<div class="section">
+<h2>5. Les indicateurs calculés</h2>
+
+<p>
+Chaque fiche donne la définition, la méthode, l'hypothèse structurante et la façon de lire le
+résultat. Les neuf premières correspondent aux lignes du tableau récapitulatif ; la dixième
+est un indicateur complémentaire.
+</p>
+
+<div class="fiche">
+<h3>1 — Offset <em>b</em></h3>
+<dl>
+  <dt>Unité</dt><dd>% PE</dd>
+  <dt>Définition</dt><dd>ordonnée à l'origine de la régression
+      <span class="formule">couple mesuré = a × couple référence + b</span></dd>
+  <dt>Méthode</dt><dd>moindres carrés ordinaires sur les paliers stabilisés d'un essai de balayage</dd>
+  <dt>Lecture</dt><dd>un écart <strong>constant</strong>, indépendant du couple appliqué. Corrigeable
+      par une remise à zéro avant essai.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>2 — Erreur de sensibilité <em>a</em> − 1</h3>
+<dl>
+  <dt>Unité</dt><dd>%</dd>
+  <dt>Définition</dt><dd>écart de la pente de régression à l'unité</dd>
+  <dt>Lecture</dt><dd>un écart <strong>proportionnel</strong> au couple. Signe une erreur de gain de la
+      chaîne — étalonnage de la jauge ou du conditionnement télémétrique — et non un décalage
+      de zéro.</dd>
+  <dt>Attention</dt><dd>n'a de sens que si le rapport de réduction ramenant la référence au point
+      de mesure des transmissions est correctement renseigné.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>3 — Non-linéarité</h3>
+<dl>
+  <dt>Unité</dt><dd>% PE</dd>
+  <dt>Définition</dt><dd>résidu maximal par rapport à la droite de régression</dd>
+  <dt>Lecture</dt><dd>ce que la droite n'explique pas. Une non-linéarité élevée invalide la
+      lecture d'un simple couple (gain, offset) : la correction ne serait pas un simple recalage
+      affine.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>4 — Hystérésis</h3>
+<dl>
+  <dt>Unité</dt><dd>% PE</dd>
+  <dt>Définition</dt><dd>écart entre montée et descente <strong>au même couple de référence</strong></dd>
+  <dt>Méthode</dt><dd>appariement des paliers montants et descendants à tolérance donnée ; en cas de
+      candidats multiples, le plus proche en couple est retenu</dd>
+  <dt>Hypothèse</dt><dd>le sens est déduit du signe de la variation de niveau d'un palier au
+      suivant ; le premier palier hérite du sens du second</dd>
+  <dt>Lecture</dt><dd>signe un frottement ou une déformation non réversible dans la chaîne. Ne se
+      corrige pas par étalonnage : entre au bilan d'incertitude.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>5 — Répétabilité, et répétabilité après remontage</h3>
+<dl>
+  <dt>Unité</dt><dd>% PE</dd>
+  <dt>Définition</dt><dd>dispersion de la mesure à couple de référence constant</dd>
+  <dt>Méthode</dt><dd>écart-type <em>poolé</em> des résidus par niveau de couple. Raisonner sur le
+      résidu plutôt que sur la mesure brute retire la variation résiduelle de la référence entre
+      répétitions.</dd>
+  <dt>Distinction</dt><dd>la <strong>répétabilité</strong> ne touche à rien entre deux mesures ; la
+      <strong>répétabilité après remontage</strong> intercale une dépose/repose et capte tout ce que
+      celle-ci dérange : contraintes de bridage, indexation des cannelures, entrefer
+      rotor/stator, couplage d'antenne. Elle est toujours plus grande. Ce sont deux grandeurs
+      différentes, jamais interchangeables.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>6 — Retard temporel</h3>
+<dl>
+  <dt>Unité</dt><dd>ms — <strong>positif = voie transmissions en retard</strong> sur la référence banc</dd>
+  <dt>Méthode</dt><dd>intercorrélation des deux signaux sur la plage dynamique la plus longue, pic
+      affiné au sous-échantillon par interpolation parabolique</dd>
+  <dt>Hypothèses</dt><dd>filtrage passe-haut à <strong>phase nulle</strong> préalable — sans lui, l'offset
+      et les composantes lentes dominent le produit de corrélation et aplatissent le pic ; un
+      filtre à phase non nulle introduirait lui-même un retard. Recherche bornée. Les
+      interruptions courtes de la détection d'activité sont comblées : un cycle transitoire passe
+      par des extrema où la variance instantanée s'annule sans cesser d'être dynamique.</dd>
+  <dt>Lecture</dt><dd>un décalage des voies d'acquisition, pas un défaut de la chaîne de mesure de
+      couple. Se corrige à l'acquisition.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>7 — Sensibilité thermique</h3>
+<dl>
+  <dt>Unité</dt><dd>% PE pour 10 °C</dd>
+  <dt>Méthode</dt><dd>régression <strong>multiple</strong>
+      <span class="formule">résidu = α × couple + β × température + γ</span>, la sensibilité retenue
+      étant β</dd>
+  <dt>Pourquoi multiple</dt><dd>couple et température montent ensemble au fil d'un essai. Avec une
+      erreur de gain, une régression sur la seule température attribuerait à l'effet thermique une
+      part de cette erreur. Sur le jeu de validation, l'écart entre les deux approches atteint
+      30 %.</dd>
+  <dt>Hypothèses</dt><dd>régression sur des moyennes par cellule d'une grille croisée
+      température × couple, non sur les échantillons bruts : un signal à 100 Hz est fortement
+      autocorrélé et donnerait un nombre de degrés de liberté fictif. En deçà d'une excursion
+      thermique minimale, la pente est déclarée non identifiable.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>8 — Dérive de zéro sur cycle</h3>
+<dl>
+  <dt>Unité</dt><dd>% PE</dd>
+  <dt>Définition</dt><dd>écart entre le relevé de zéro de début et celui de fin d'essai</dd>
+  <dt>Méthode</dt><dd>un relevé de zéro est une plage de repos d'une durée minimale où le couple de
+      référence et, si le canal existe, le régime restent sous leurs seuils</dd>
+  <dt>Hypothèse</dt><dd>la plage « début » doit commencer dans la première fraction de l'essai et la
+      plage « fin » se terminer dans la dernière ; sinon il ne s'agit pas d'un relevé avant/après
+      mais d'un simple passage à couple nul en cours d'essai</dd>
+  <dt>Lecture</dt><dd>souvent d'origine thermique. Sur un essai à forte excursion, comparez la dérive
+      constatée au produit de la sensibilité thermique par l'écart de température entre les deux
+      relevés : la cohérence des deux valide les deux.</dd>
+</dl>
+</div>
+
+<div class="fiche">
+<h3>9 — Incertitude élargie (k = 2)</h3>
+<p style="margin:0">Voir le chapitre 7, qui lui est consacré.</p>
+</div>
+
+<div class="fiche">
+<h3>10 — Redondance gauche − droite <span style="font-weight:400;color:var(--muted)">(complémentaire)</span></h3>
+<dl>
+  <dt>Unité</dt><dd>% PE — moyenne, écart-type et maximum de l'écart entre voies</dd>
+  <dt>Condition</dt><dd>essai déclaré <em>ligne droite</em></dd>
+  <dt>Intérêt</dt><dd>c'est le <strong>seul indicateur indépendant de la référence banc</strong>. Les deux
+      voies se valident l'une l'autre.</dd>
+  <dt>Lecture</dt><dd>un écart moyen constant d'un essai à l'autre signe un décalage systématique
+      entre les deux jauges, corrigeable par étalonnage. Un écart qui varie d'un essai à l'autre
+      signe une voie qui dérive — à croiser avec la température et la dérive de zéro pour
+      identifier laquelle.</dd>
+</dl>
+</div>
+</div>
+
+<!-- ══════════════════ 6 ══════════════════ -->
+<div class="section">
+<h2>6. Le diagnostic qualitatif</h2>
+
+<p>
+Pour chaque essai dynamique, l'outil rédige une conclusion de trois phrases au plus,
+directement utilisable dans le rapport. Elle applique la grille suivante, dans cet ordre de
+priorité :
+</p>
+
+<table>
+  <tr><th style="width:42mm">Constat</th><th style="width:34mm">Cause retenue</th><th>Ce que cela implique</th></tr>
+  <tr><td>écart <strong>uniquement en transitoire</strong> — le recalage réduit nettement le RMS du résidu</td>
+      <td><strong>synchronisation</strong></td>
+      <td>défaut des voies d'acquisition, pas de la chaîne de mesure de couple</td></tr>
+  <tr><td>écart <strong>proportionnel</strong> au couple</td>
+      <td><strong>gain</strong></td>
+      <td>erreur de sensibilité : étalonnage de la jauge ou du conditionnement</td></tr>
+  <tr><td>écart <strong>constant</strong></td>
+      <td><strong>offset capteur</strong></td>
+      <td>corrigeable par remise à zéro ; l'aptitude en sensibilité n'est pas en cause</td></tr>
+  <tr><td>écart <strong>dépendant du point de fonctionnement</strong> et reproductible d'un essai à l'autre</td>
+      <td><strong>écart de modèle</strong></td>
+      <td>écart entre la grandeur reconstruite au banc et le couple réellement transmis ; aucune correction de la voie transmissions n'est justifiée</td></tr>
+</table>
+
+<div class="note">
+<p><span class="etiq">Pourquoi la synchronisation est testée en premier.</span> Un défaut de
+synchronisation produit mécaniquement, sur un signal transitoire, un résidu qui
+<em>ressemble</em> à un défaut de gain. L'inverse n'est pas vrai. Tester la synchronisation
+d'abord évite d'attribuer à la chaîne de mesure un simple décalage d'horloge.</p>
+</div>
+
+<div class="astuce">
+<p>Lorsque plusieurs défauts coexistent, la conclusion nomme la cause dominante et
+<strong>mentionne les autres en incise</strong>. Un retard significatif mais qui n'explique qu'une
+faible part du résidu sera signalé sans être désigné comme la cause.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 7 ══════════════════ -->
+<div class="section">
+<h2>7. Le bilan d'incertitude</h2>
+
+<p>
+Les contributions sont combinées en <strong>somme quadratique</strong>, sous hypothèse de
+non-corrélation, puis élargies par <span class="formule">k = 2</span>, soit un niveau de
+confiance d'environ 95 %.
+</p>
+
+<table>
+  <tr><th style="width:40mm">Contribution</th><th style="width:26mm">Loi</th><th>Origine</th></tr>
+  <tr><td>Non-linéarité</td><td>rectangulaire</td><td>résidu max de la régression du balayage</td></tr>
+  <tr><td>Hystérésis</td><td>rectangulaire</td><td>demi-écart montée/descente</td></tr>
+  <tr><td>Répétabilité</td><td>normale (type A)</td><td>écart-type poolé mesuré</td></tr>
+  <tr><td>Dérive de zéro</td><td>rectangulaire</td><td>dérive la plus forte constatée</td></tr>
+  <tr><td>Effet thermique</td><td>rectangulaire</td><td>sensibilité × plage de service</td></tr>
+  <tr><td>Référence banc GMP</td><td>normale</td><td><strong>saisie utilisateur</strong> — certificat d'étalonnage</td></tr>
+</table>
+
+<p>
+Une grandeur bornée dont on ne connaît que la demi-étendue est traitée en loi rectangulaire,
+soit <span class="formule">u = a / √3</span>. La répétabilité, évaluation de type A, est
+directement un écart-type.
+</p>
+
+<div class="garde">
+<p><span class="etiq">Minorant.</span> Toute contribution non disponible est <strong>exclue et
+signalée</strong>, et le résultat est alors explicitement annoncé comme un minorant, avec la
+liste des exclusions. C'est le cas tant que l'incertitude du banc ou la plage de service ne
+sont pas renseignées. Le chiffre reste juste — il est seulement incomplet, et le rapport le
+dit.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 8 ══════════════════ -->
+<div class="section">
+<h2>8. Les cartes de contrôle du chapitre 11</h2>
+
+<figure>
+  <img src="img/07_spc.png" alt="Vue Cartes de contrôle : paramètres CUSUM et EWMA">
+  <figcaption>Les paramètres sont déduits de la dispersion mesurée, jamais posés a priori.</figcaption>
+</figure>
+
+<h3>Ce qui vient des mesures</h3>
+<table>
+  <tr><th style="width:26mm">Paramètre</th><th>Origine</th></tr>
+  <tr><td><strong>μ0</strong></td><td>moyenne du résidu sur les paliers des essais répétés</td></tr>
+  <tr><td><strong>σ0</strong></td><td>répétabilité poolée <strong>à couple de référence constant</strong></td></tr>
+  <tr><td>σ0 robuste</td><td>étendue mobile moyenne / d₂ — contre-épreuve insensible à une dérive lente</td></tr>
+</table>
+
+<div class="note">
+<p><span class="etiq">Pourquoi σ0 est la variabilité court terme.</span> C'est la dispersion à point
+de fonctionnement donné et sans démontage. Les décalages entre essais ou entre remontages sont
+précisément ce que la carte doit <em>détecter</em> — pas ce qui doit élargir ses limites. Le
+rapport vérifie d'ailleurs le dimensionnement en exprimant la dispersion de remontage en
+multiples de σ0.</p>
+</div>
+
+<h3>Ce qui vient des tables</h3>
+<p>
+Les multiplicateurs ne sont pas arbitraires non plus : ce sont les valeurs tabulées donnant
+les longueurs moyennes de série sous contrôle (ARL0) usuelles en maîtrise statistique des
+procédés.
+</p>
+<table>
+  <tr><th style="width:22mm">Carte</th><th style="width:34mm">Paramètre</th><th>Justification</th></tr>
+  <tr><td rowspan="3"><strong>CUSUM</strong></td><td><em>k</em> = 0,5 σ0</td><td>optimal pour détecter un décalage de 1 σ</td></tr>
+  <tr><td><em>h</em> = 4 σ0 <em>(alerte)</em></td><td>ARL0 ≈ 168</td></tr>
+  <tr><td><em>h</em> = 5 σ0 <em>(alarme)</em></td><td>ARL0 ≈ 465</td></tr>
+  <tr><td rowspan="3"><strong>EWMA</strong></td><td>λ = 0,20</td><td>compromis usuel pour des décalages de 0,5 à 1 σ</td></tr>
+  <tr><td><em>L</em> = 2,0 <em>(alerte)</em></td><td>limite à ≈ 2 σ</td></tr>
+  <tr><td><em>L</em> = 2,962 <em>(alarme)</em></td><td>ARL0 ≈ 370 pour λ = 0,20</td></tr>
+</table>
+<p>
+Avec <span class="formule">σ_EWMA(∞) = σ0 × √(λ / (2 − λ))</span>, les limites à appliquer sont
+<span class="formule">μ0 ± L × σ_EWMA(∞)</span>.
+</p>
+
+<div class="garde">
+<p><span class="etiq">Condition d'emploi de μ0.</span> Dès qu'une erreur de sensibilité subsiste, le
+résidu dépend du couple appliqué : μ0 n'a de sens que si la surveillance porte sur des points
+de fonctionnement comparables à ceux ayant servi à l'estimer. Pour une surveillance sur plage
+étendue, portez en carte le résidu <em>après correction de gain</em>, dont la cible est alors
+nulle. σ0 n'est pas concerné : il est estimé à couple constant.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 9 ══════════════════ -->
+<div class="section">
+<h2>9. « Non calculable » : pourquoi, et que faire</h2>
+
+<p>
+Une mention <em>non calculable</em> n'est pas une panne : c'est un refus délibéré d'inventer.
+Le motif exact accompagne toujours la mention. Voici les cas les plus fréquents et leur
+traitement.
+</p>
+
+<table>
+  <tr><th style="width:44mm">Grandeur</th><th style="width:52mm">Motif possible</th><th>Que faire</th></tr>
+  <tr><td>Hystérésis</td><td>le balayage ne comporte pas à la fois une montée et une descente</td>
+      <td>vérifier le type déclaré ; sinon la grandeur n'existe pas pour cet essai</td></tr>
+  <tr><td>Répétabilité</td><td>aucun niveau de couple répété au moins deux fois</td>
+      <td>regrouper les relevés d'un même protocole dans un seul dossier, ou augmenter la tolérance de regroupement</td></tr>
+  <tr><td>Répétabilité après remontage</td><td>moins de deux groupes de remontage déclarés</td>
+      <td>renseigner deux étiquettes distinctes ; si aucun remontage n'a eu lieu, l'indiquer dans l'onglet Hypothèses</td></tr>
+  <tr><td>Retard temporel</td><td>aucune plage dynamique contiguë assez longue</td>
+      <td>abaisser le seuil d'activité, ou reconnaître que l'essai est trop stationnaire</td></tr>
+  <tr><td>Sensibilité thermique</td><td>excursion thermique insuffisante, ou canal de température absent</td>
+      <td>rien à forcer : une pente non identifiable ne doit pas être extrapolée</td></tr>
+  <tr><td>Dérive de zéro</td><td>pas de relevé de repos en début <em>et</em> en fin d'essai</td>
+      <td>normal sur un essai qui ne revient pas à l'arrêt ; d'autres essais alimenteront la ligne</td></tr>
+  <tr><td>Résidu gauche − droite</td><td>essai non déclaré en ligne droite, ou une seule voie</td>
+      <td>cocher <em>ligne droite</em> si les sorties sont chargées symétriquement</td></tr>
+</table>
+
+<div class="astuce">
+<p>Deux situations très différentes mènent à « non calculable », et le rapport les distingue :
+une grandeur <strong>non définie</strong> (aucun remontage n'a eu lieu — il n'y a rien à mesurer)
+n'est pas une grandeur <strong>non configurée</strong> (un remontage a eu lieu mais les groupes ne
+sont pas déclarés). La nuance compte dans un document relu par des tiers.</p>
+</div>
+</div>
+
+<!-- ══════════════════ 10 ══════════════════ -->
+<div class="section">
+<h2>10. Glossaire</h2>
+
+<table>
+  <tr><th style="width:38mm">Terme</th><th>Définition</th></tr>
+  <tr><td><strong>PE</strong> — pleine échelle</td><td>étendue de mesure nominale du capteur de couple des transmissions. À 1500 N·m, 1 % PE = 15 N·m.</td></tr>
+  <tr><td><strong>Résidu</strong></td><td>couple mesuré − couple de référence. Positif = les transmissions lisent plus que le banc.</td></tr>
+  <tr><td><strong>Palier stabilisé</strong></td><td>fenêtre où l'écart-type du couple de référence reste sous un seuil. Seule la fraction finale est moyennée, pour écarter le transitoire d'établissement.</td></tr>
+  <tr><td><strong>ddl</strong> — degrés de liberté</td><td>nombre d'observations indépendantes moins le nombre de paramètres estimés. Mesure la solidité d'un écart-type.</td></tr>
+  <tr><td><strong>Écart-type poolé</strong></td><td>combinaison des écarts-types de plusieurs groupes, pondérée par leurs degrés de liberté. Suppose une dispersion homogène.</td></tr>
+  <tr><td><strong>k</strong> — facteur d'élargissement</td><td>multiplicateur appliqué à l'incertitude-type. k = 2 ≈ 95 % de confiance.</td></tr>
+  <tr><td><strong>Incertitude-type</strong></td><td>incertitude à k = 1. Un certificat annonçant U à k = 2 impose de saisir U / 2.</td></tr>
+  <tr><td><strong>Loi rectangulaire</strong></td><td>toutes les valeurs d'un intervalle sont également probables : u = demi-étendue / √3.</td></tr>
+  <tr><td><strong>Type A / type B</strong></td><td>évaluation par analyse statistique de mesures répétées (A) ou par tout autre moyen — certificat, notice (B).</td></tr>
+  <tr><td><strong>ARL0</strong></td><td>longueur moyenne de série sous contrôle : nombre moyen de points avant une fausse alarme. Plus il est élevé, moins la carte crie au loup.</td></tr>
+  <tr><td><strong>CUSUM</strong></td><td>carte de somme cumulée : accumule les écarts à la cible, sensible aux petits décalages persistants.</td></tr>
+  <tr><td><strong>EWMA</strong></td><td>moyenne mobile exponentiellement pondérée : lisse l'historique, λ règle la mémoire.</td></tr>
+  <tr><td><strong>Intercorrélation</strong></td><td>produit de deux signaux en fonction d'un décalage temporel. Son maximum donne le retard de l'un sur l'autre.</td></tr>
+  <tr><td><strong>MDF4</strong></td><td>format de fichier de mesure (<code>.mf4</code>). Chaque groupe de canaux y possède son propre canal maître, donc sa propre base de temps.</td></tr>
+  <tr><td><strong>Base de temps commune</strong></td><td>grille uniforme sur laquelle tous les canaux sont ramenés, couvrant l'intersection de leurs plages. Aucune extrapolation.</td></tr>
+</table>
+
+<div class="note" style="margin-top:2em">
+<p><span class="etiq">Pour aller plus loin.</span> Le <code>README.md</code> du projet décrit
+l'architecture et l'usage en ligne de commande. Le fichier
+<code>config/correlation.example.yaml</code> documente chaque paramètre à l'endroit où il se
+règle. Le § « Hypothèses de traitement » du rapport généré reprend l'intégralité des bornes
+effectivement appliquées à l'analyse — c'est lui qui fait foi.</p>
+</div>
+</div>
+
+</body>
+</html>

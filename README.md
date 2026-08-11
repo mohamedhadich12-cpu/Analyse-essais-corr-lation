@@ -20,6 +20,17 @@ Les acquisitions ne quittent pas votre machine : tout s'exécute en local, en le
 seule sur les `.mf4`. Rien dans ce dépôt ne contient de données d'essai
 (`.mf4`, `.mdf` et `.dat` sont exclus par `.gitignore`).
 
+## Guide utilisateur
+
+**[`docs/Guide_correlation_couple_banc_GMP.pdf`](docs/Guide_correlation_couple_banc_GMP.pdf)** —
+23 pages : l'interface onglet par onglet, les types d'essai, chaque indicateur
+(définition, méthode, hypothèse structurante, comment le lire), le bilan
+d'incertitude, les cartes de contrôle et un glossaire. À lire avant la première
+utilisation.
+
+Pour le régénérer après une évolution de l'interface : `python docs/source/captures.py`
+puis `python docs/construire_guide.py` (voir l'entête de chaque script).
+
 ## Installation
 
 **Python 3.10 à 3.13.** `asammdf` dépend de `zstd`, dont les wheels Windows
