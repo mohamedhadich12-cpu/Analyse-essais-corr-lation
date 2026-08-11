@@ -111,6 +111,20 @@ def lister_fichiers(dossier: str | Path, max_fichiers: int | None = None) -> lis
 # -- fonctions d'accès, aiguillées vers le lecteur du format -----------------
 
 
+def doublons_de_format(fichiers: Iterable[Path]) -> dict[str, list[Path]]:
+    """Repère les acquisitions présentes sous plusieurs formats.
+
+    Un même essai exporté à la fois en `.mf4` et en `.aif` porte les mêmes
+    grandeurs : le traiter deux fois fausserait tout ce qui se cumule — nombre
+    de paliers, répétabilité, dispersion des cartes de contrôle — sans qu'aucun
+    calcul n'échoue. Le doublon se reconnaît au nom de fichier sans extension.
+    """
+    par_racine: dict[str, list[Path]] = {}
+    for chemin in fichiers:
+        par_racine.setdefault(chemin.stem.lower(), []).append(chemin)
+    return {racine: sorted(v) for racine, v in par_racine.items() if len(v) > 1}
+
+
 def decrire_canaux(chemin: str | Path) -> list:
     """Inventorie les canaux d'un fichier, quel que soit son format."""
     return lecteur_pour(chemin).decrire(chemin)

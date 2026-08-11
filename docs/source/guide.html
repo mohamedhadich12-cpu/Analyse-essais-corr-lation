@@ -139,8 +139,9 @@
 <h2>1. Principe et garanties</h2>
 
 <p>
-L'outil lit des acquisitions au format MDF4 (<code>.mf4</code>), rangées par type d'essai
-dans des sous-dossiers. Pour chaque essai il confronte le couple mesuré par les
+L'outil lit des acquisitions au format MDF — <code>.mf4</code>, <code>.mdf</code> et
+<code>.aif</code> (exports ETAS INCA, qui sont des conteneurs MDF sous une extension propre
+à l'outil) — rangées par type d'essai dans des sous-dossiers. Pour chaque essai il confronte le couple mesuré par les
 transmissions instrumentées au couple de référence du banc, puis en tire les
 indicateurs du chapitre 10. Il produit un rapport Markdown et des figures PNG
 directement insérables.
@@ -162,6 +163,23 @@ obtenue — canal absent, excursion thermique insuffisante, pas de relevé de z�
 identifiable, aucun essai répété — est restituée avec un <strong>motif explicite de
 non-calculabilité</strong>, repris tel quel dans le rapport. Rien n'est extrapolé, et aucune
 valeur par défaut ne se substitue à une mesure manquante.</p>
+</div>
+
+<div class="garde">
+<p><span class="etiq">Un essai n'est jamais compté deux fois en silence.</span> Si une même
+acquisition existe sous plusieurs formats dans le même dossier — <code>releve_01.mf4</code> et
+<code>releve_01.aif</code> — les deux fichiers portent les mêmes grandeurs et seraient traités
+comme deux essais distincts. Rien n'échouerait : le nombre de paliers, la répétabilité et la
+dispersion des cartes de contrôle seraient simplement faux. Le doublon est détecté au nom de
+fichier et signalé, à l'écran comme dans le rapport. Ne conservez qu'un format par
+acquisition.</p>
+</div>
+
+<div class="note">
+<p><span class="etiq">Le format se vérifie au contenu.</span> Une extension ne prouve rien :
+l'outil contrôle la signature du fichier avant de le lire. Un <code>.aif</code> qui ne serait
+pas un conteneur MDF est refusé explicitement, avec ses premiers octets — de quoi identifier
+le format réel — plutôt qu'interprété à l'aveugle.</p>
 </div>
 
 <h3>Conventions</h3>

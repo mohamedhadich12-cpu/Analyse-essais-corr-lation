@@ -26,7 +26,15 @@ from asammdf import MDF
 
 from .config import MappingCanaux
 
-EXTENSIONS_MDF = (".mf4", ".mdf")
+# Extensions traitées comme des conteneurs MDF. `.aif` en fait partie : les
+# exports ETAS INCA sont des conteneurs MDF sous une extension propre à l'outil.
+# L'appartenance réelle au format est vérifiée sur le CONTENU du fichier
+# (cf. `_verifier_conteneur_mdf`), jamais sur son nom.
+EXTENSIONS_MDF = (".mf4", ".mdf", ".aif")
+
+# Signatures d'un bloc d'identification MDF, versions 2 à 4 confondues.
+# « UnFinMF » marque un fichier non finalisé, que la bibliothèque sait réparer.
+SIGNATURES_MDF = (b"MDF     ", b"UnFinMF ")
 
 
 class CanalIntrouvable(KeyError):
@@ -37,15 +45,37 @@ class ErreurChargement(RuntimeError):
     """Le fichier ne peut pas être exploité (canal vide, pas de plage commune...)."""
 
 
+def _verifier_conteneur_mdf(chemin: Path) -> None:
+    """Vérifie que le fichier est bien un conteneur MDF, sur son contenu.
+
+    Une extension ne prouve rien. Sans ce contrôle, un fichier au format
+    inattendu produirait soit une erreur incompréhensible de la bibliothèque,
+    soit — bien pire — des signaux plausibles mais faux. On préfère refuser
+    explicitement, en donnant de quoi identifier le format réel.
+    """
+    with open(chemin, "rb") as fh:
+        entete = fh.read(8)
+    if entete.startswith(SIGNATURES_MDF):
+        return
+    raise ErreurChargement(
+        f"{chemin.name} n'est pas un conteneur MDF : ses premiers octets sont "
+        f"{entete.hex(' ')} ({entete!r}), au lieu de « MDF     ». "
+        "L'extension seule ne garantit pas le format. Si ce fichier provient bien "
+        "d'un outil de mesure, communiquez ces premiers octets pour qu'un lecteur "
+        "adapté soit écrit — aucune donnée ne sera interprétée à l'aveugle."
+    )
+
+
 @contextmanager
 def ouvrir_mdf(chemin: str | Path) -> Iterator[MDF]:
-    """Ouvre un MDF4 en lecture seule.
+    """Ouvre un conteneur MDF en lecture seule.
 
     Le handle est ouvert en `'rb'` : toute tentative d'écriture par la
     bibliothèque échouerait au niveau OS. C'est la garantie technique que les
     acquisitions sources ne sont jamais altérées.
     """
     chemin = Path(chemin)
+    _verifier_conteneur_mdf(chemin)
     with open(chemin, "rb") as fh:
         mdf = MDF(fh)
         try:
@@ -352,7 +382,7 @@ def _enregistrer() -> None:
 
     enregistrer(
         Lecteur(
-            nom="MDF4 (ASAM)",
+            nom="MDF (ASAM) — .mf4, .mdf, .aif (export ETAS INCA)",
             extensions=EXTENSIONS_MDF,
             decrire=decrire_canaux,
             charger=charger_signaux,

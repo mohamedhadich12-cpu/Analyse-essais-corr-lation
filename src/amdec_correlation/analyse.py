@@ -28,7 +28,7 @@ import numpy as np
 from . import graphiques, metriques as M
 from .config import Config, DeclarationEssai
 from .io_mdf import ErreurChargement, SignauxEssai, resumer_etats
-from .lecteurs import charger_signaux, lister_fichiers
+from .lecteurs import charger_signaux, doublons_de_format, lister_fichiers
 
 # Cadence de conservation des échantillons pour l'analyse thermique groupée :
 # la sensibilité thermique est une tendance lente, 10 Hz suffisent largement et
@@ -149,6 +149,7 @@ class ResultatEssai:
     declaration: DeclarationEssai
     fichiers_traites: list[Path] = field(default_factory=list)
     erreurs: list[str] = field(default_factory=list)
+    avertissements: list[str] = field(default_factory=list)
     paliers: list[M.Palier] = field(default_factory=list)
     regression: M.Regression | None = None
     hysteresis: M.Hysteresis | None = None
@@ -221,8 +222,18 @@ def traiter_essai(essai: DeclarationEssai, cfg: Config, dossier_figures: Path) -
     fichiers = lister_fichiers(chemin, essai.max_fichiers)
 
     if not fichiers:
-        resultat.erreurs.append(f"aucun fichier .mf4 trouvé dans {chemin}")
+        resultat.erreurs.append(f"aucune acquisition exploitable trouvée dans {chemin}")
         return resultat
+
+    for racine, doublons in doublons_de_format(fichiers).items():
+        resultat.avertissements.append(
+            f"« {essai.dossier} » : l'acquisition « {racine} » est présente sous "
+            f"{len(doublons)} formats ({', '.join(f.suffix for f in doublons)}). "
+            "Ces fichiers portant les mêmes grandeurs, ils seront traités comme des "
+            "essais distincts et compteront double dans tout ce qui se cumule "
+            "(paliers, répétabilité, dispersion des cartes). Ne conservez qu'un "
+            "format par acquisition."
+        )
     if not mapping.a_reference or not mapping.voies_couple_mesure:
         manquant = "couple de référence" if not mapping.a_reference else "couple mesuré"
         resultat.erreurs.append(
@@ -615,7 +626,12 @@ def analyser(cfg: Config) -> ResultatCampagne:
         config=cfg, avertissements=cfg.verifier_mapping() + cfg.verifier_saisies()
     )
     for essai in cfg.essais:
-        campagne.essais.append(traiter_essai(essai, cfg, dossier_figures))
+        resultat = traiter_essai(essai, cfg, dossier_figures)
+        campagne.essais.append(resultat)
+        # Les avertissements des essais remontent au niveau campagne : ils
+        # doivent apparaître dans le rapport et à l'écran, pas seulement dans le
+        # détail d'un essai que personne ne déplie.
+        campagne.avertissements.extend(resultat.avertissements)
 
     # -- sensibilité thermique consolidée sur toute la campagne --------------
     T_all, res_all, couple_all = [], [], []

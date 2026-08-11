@@ -380,6 +380,8 @@ def section_detail_essais(campagne: ResultatCampagne) -> str:
             continue
 
         lignes = [f"- Fichiers traités : {len(e.fichiers_traites)}"]
+        for avertissement in e.avertissements:
+            lignes.append(f"- ⚠️ {avertissement}")
         if e.erreurs:
             lignes.append(f"- Fichiers en erreur : {len(e.erreurs)} — " + " ; ".join(e.erreurs[:3]))
         if e.paliers:

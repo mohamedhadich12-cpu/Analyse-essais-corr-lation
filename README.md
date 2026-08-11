@@ -4,6 +4,10 @@ Pipeline d'analyse des acquisitions MDF4 pour le **chapitre 10** du rapport AMDE
 (« Apport de la campagne de corrélation sur banc GMP »), et pour le dimensionnement
 des cartes de contrôle du **chapitre 11**.
 
+Formats d'acquisition lus : **`.mf4`, `.mdf`** et **`.aif`** (exports ETAS INCA,
+qui sont des conteneurs MDF sous une extension propre à l'outil). L'appartenance
+au format est vérifiée sur le **contenu** du fichier, jamais sur son nom.
+
 Il compare le couple mesuré par les transmissions instrumentées (télémétrie
 Manner PCM16) au couple de référence mesuré sur banc GMP, et produit :
 
@@ -103,6 +107,7 @@ python scripts/01_inventaire.py --racine "C:/Users/SD17365/Documents"
 | Fichier | Contenu |
 |---|---|
 | `inventaire_canaux.md` | tous les canaux par sous-dossier : nom, unité, groupe, cadence, plage de temps, et un diagnostic de base de temps |
+| _(rappel)_ | l'inventaire couvre `.mf4`, `.mdf` et `.aif`, casse de l'extension indifférente |
 | `canaux.csv` | le même à plat, pour recherche |
 | `canaux_proposition.yaml` | squelette de mapping pré-rempli avec des **candidats à valider** |
 
@@ -169,6 +174,12 @@ des mesures. Aucun seuil n'est posé arbitrairement.
 l'écriture est impossible au niveau du système de fichiers, et aucune méthode mutante
 d'asammdf n'est appelée. Un test compare les empreintes SHA-256 et les dates de
 modification de tous les fichiers avant et après une analyse complète.
+
+**Un même essai n'est jamais compté deux fois sans le dire.** Si une acquisition existe
+sous plusieurs formats dans le même dossier (`releve_01.mf4` et `releve_01.aif`), les deux
+fichiers portent les mêmes grandeurs et seraient traités comme des essais distincts —
+faussant tout ce qui se cumule, sans qu'aucun calcul n'échoue. Le doublon est détecté et
+signalé, à l'écran comme dans le rapport.
 
 **Aucune valeur inventée.** Toute grandeur qui ne peut pas être obtenue — canal absent,
 excursion thermique insuffisante, pas de relevé de zéro identifiable, aucun essai

@@ -72,11 +72,22 @@ def incorporer(html: str) -> str:
     return re.sub(r'src="(img/[^"]+)"', remplacer, html)
 
 
-def rendre(html_autonome: Path, sortie: Path) -> None:
+def rendre(html_autonome: Path, sortie: Path, chromium: str | None = None) -> None:
+    """Rend le PDF via le moteur d'impression de Chromium.
+
+    `chromium` (ou la variable d'environnement `CHROMIUM_EXECUTABLE`) permet de
+    désigner un binaire déjà présent sur la machine, lorsque `playwright install`
+    n'a pas été lancé.
+    """
+    import os
+
     from playwright.sync_api import sync_playwright
 
+    executable = chromium or os.environ.get("CHROMIUM_EXECUTABLE")
     with sync_playwright() as pilote:
-        navigateur = pilote.chromium.launch()
+        navigateur = pilote.chromium.launch(
+            **({"executable_path": executable} if executable else {})
+        )
         page = navigateur.new_page()
         page.goto(html_autonome.resolve().as_uri(), wait_until="load")
         page.wait_for_timeout(2500)
@@ -90,6 +101,13 @@ def rendre(html_autonome: Path, sortie: Path) -> None:
 
 
 def main() -> int:
+    import argparse
+
+    parseur = argparse.ArgumentParser(description=__doc__,
+                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parseur.add_argument("--chromium", help="chemin d'un binaire Chromium existant")
+    args = parseur.parse_args()
+
     if not HTML.is_file():
         print(f"Source introuvable : {HTML}", file=sys.stderr)
         return 2
@@ -97,7 +115,7 @@ def main() -> int:
         detourer(image)
     autonome = SOURCE / "guide_autonome.html"
     autonome.write_text(incorporer(HTML.read_text(encoding="utf-8")), encoding="utf-8")
-    rendre(autonome, SORTIE)
+    rendre(autonome, SORTIE, args.chromium)
     autonome.unlink()
     print(f"Guide écrit : {SORTIE}  ({SORTIE.stat().st_size / 1e6:.2f} Mo)")
     return 0
