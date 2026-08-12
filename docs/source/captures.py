@@ -64,11 +64,14 @@ def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
         page.wait_for_timeout(2500)
         zone.screenshot(path=str(IMAGES / "01_exploration.png"))
 
-        onglet("2 · Canaux", 3500); zone.screenshot(path=str(IMAGES / "02_canaux.png"))
-        onglet("3 · Essais");       zone.screenshot(path=str(IMAGES / "03_essais.png"))
-        onglet("4 · Hypothèses");   zone.screenshot(path=str(IMAGES / "04_hypotheses.png"))
+        onglet("3 · Canaux", 3500); zone.screenshot(path=str(IMAGES / "02_canaux.png"))
+        onglet("4 · Essais");       zone.screenshot(path=str(IMAGES / "03_essais.png"))
+        onglet("5 · Hypothèses");   zone.screenshot(path=str(IMAGES / "04_hypotheses.png"))
 
-        onglet("5 · Analyse & résultats", 3500)
+        onglet("2 · Visualisation", 5000)
+        zone.screenshot(path=str(IMAGES / "10_visualisation.png"))
+
+        onglet("6 · Analyse & résultats", 3500)
         page.get_by_role("button", name="Lancer l'analyse").click()
         page.wait_for_timeout(50_000)
         zone.screenshot(path=str(IMAGES / "05_resultats.png"))

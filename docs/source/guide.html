@@ -276,10 +276,11 @@ des valeurs fabriquées se mélangeraient à vos résultats.</p>
 <table>
   <tr><th style="width:30mm">Onglet</th><th>Ce qu'on y fait</th><th style="width:38mm">Ce qui en sort</th></tr>
   <tr><td><strong>1 · Exploration</strong></td><td>lire les acquisitions, découvrir les canaux réellement présents</td><td>liste des canaux, unités, cadences, bases de temps</td></tr>
-  <tr><td><strong>2 · Canaux</strong></td><td>associer chaque rôle à un canal réel</td><td>le mapping</td></tr>
-  <tr><td><strong>3 · Essais</strong></td><td>déclarer le type de chaque essai et ses conditions</td><td>le plan de traitement</td></tr>
-  <tr><td><strong>4 · Hypothèses</strong></td><td>fixer les bornes de traitement et les deux saisies utilisateur</td><td>les hypothèses citées dans le rapport</td></tr>
-  <tr><td><strong>5 · Analyse</strong></td><td>lancer, lire, exporter</td><td>rapport Markdown + figures PNG</td></tr>
+  <tr><td><strong>2 · Visualisation</strong></td><td>tracer n'importe quel canal, fichier par fichier</td><td>la confirmation que l'acquisition contient ce qu'on croit</td></tr>
+  <tr><td><strong>3 · Canaux</strong></td><td>associer chaque rôle à un canal réel</td><td>le mapping</td></tr>
+  <tr><td><strong>4 · Essais</strong></td><td>déclarer le type de chaque essai et ses conditions</td><td>le plan de traitement</td></tr>
+  <tr><td><strong>5 · Hypothèses</strong></td><td>fixer les bornes de traitement et les deux saisies utilisateur</td><td>les hypothèses citées dans le rapport</td></tr>
+  <tr><td><strong>6 · Analyse</strong></td><td>lancer, lire, exporter</td><td>rapport Markdown + figures PNG</td></tr>
 </table>
 
 <div class="note">
@@ -320,7 +321,39 @@ d'une convention de nommage.
       dernière valeur pour les canaux d'état.</li>
 </ul>
 
-<h3>3.2 — Canaux</h3>
+<h3>3.2 — Visualisation</h3>
+<p>
+Trace n'importe quel canal en fonction du temps, <strong>fichier par fichier</strong>. C'est le
+seul endroit où l'on vérifie qu'une acquisition contient bien ce qu'on croit, et que son allure
+correspond au type d'essai déclaré — un contrôle que l'analyse ne peut pas faire à votre place.
+</p>
+
+<figure>
+  <img src="img/10_visualisation.png" alt="Onglet Visualisation">
+  <figcaption>Onglet 2 — sélection de l'essai puis du fichier, choix libre des canaux, et
+    combinaison de deux d'entre eux.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>Essai puis fichier</strong> : chaque dossier peut contenir plusieurs acquisitions,
+      et rien ne garantit qu'elles portent toutes les mêmes canaux — la liste est relue sur le
+      fichier sélectionné.</li>
+  <li><strong>Courbe dérivée</strong> : combine deux canaux par somme ou différence. La somme des
+      deux transmissions donne le couple total ; leur différence est l'indicateur de redondance,
+      le seul qui ne dépende pas de la référence banc.</li>
+  <li><strong>Plage de temps</strong> : à l'échelle d'un cycle entier, quelques dizaines de
+      millisecondes sont invisibles. Resserrer la plage est le seul moyen de voir un détail
+      rapide.</li>
+</ul>
+
+<div class="note">
+<p><span class="etiq">Un panneau par unité.</span> Les courbes sont groupées par unité plutôt que
+superposées sur un axe unique : un couple en N·m et un régime en tr/min tracés ensemble
+écraseraient l'un des deux, et leur donner deux échelles verticales inventerait une corrélation
+que les données ne portent pas.</p>
+</div>
+
+<h3>3.3 — Canaux</h3>
 <p>
 Chaque rôle se choisit dans une liste déroulante <strong>peuplée des noms réellement trouvés</strong>
 dans les acquisitions : aucun libellé n'est à recopier, ce qui supprime la première source
@@ -356,7 +389,7 @@ explicitement <em>non calculables</em> les grandeurs qui en dépendent, plutôt 
 C'est toujours préférable à un mapping approximatif.</p>
 </div>
 
-<h3>3.3 — Essais</h3>
+<h3>3.4 — Essais</h3>
 <figure>
   <img src="img/03_essais.png" alt="Onglet Essais : type, ligne droite, groupe de remontage">
   <figcaption>Onglet 3 — trois décisions par essai, dont deux conditionnent l'existence
@@ -379,7 +412,7 @@ C'est toujours préférable à un mapping approximatif.</p>
       campagne pour que la répétabilité après remontage existe.</td></tr>
 </table>
 
-<h3>3.4 — Hypothèses</h3>
+<h3>3.5 — Hypothèses</h3>
 <figure>
   <img src="img/04_hypotheses.png" alt="Onglet Hypothèses : saisies utilisateur et bornes de traitement">
   <figcaption>Onglet 4 — toutes ces valeurs sont reprises telles quelles dans le § Hypothèses
@@ -403,7 +436,7 @@ comme un <strong>minorant</strong>, avec la liste des exclusions. Le rapport res
 seulement moins complet.
 </p>
 
-<h3>3.5 — Analyse et résultats</h3>
+<h3>3.6 — Analyse et résultats</h3>
 <figure>
   <img src="img/05_resultats.png" alt="Onglet Analyse : chiffres clés et tableau récapitulatif">
   <figcaption>Onglet 5 — quatre chiffres clés, puis le tableau récapitulatif du chapitre 10.</figcaption>

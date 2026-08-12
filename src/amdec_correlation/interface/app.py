@@ -22,6 +22,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
 
 _RACINE_PROJET = Path(__file__).resolve().parents[3]
@@ -29,7 +30,9 @@ if str(_RACINE_PROJET / "src") not in sys.path:
     sys.path.insert(0, str(_RACINE_PROJET / "src"))
 
 from amdec_correlation import analyse as A  # noqa: E402
+from amdec_correlation import graphiques  # noqa: E402
 from amdec_correlation import inventaire as I  # noqa: E402
+from amdec_correlation import lecteurs  # noqa: E402
 from amdec_correlation import rapport as R  # noqa: E402
 from amdec_correlation.config import MODES_COMPARAISON  # noqa: E402
 from amdec_correlation.interface import etat as E  # noqa: E402
@@ -194,6 +197,101 @@ def _valeur(x: float, decimales: int = 3, signe: bool = False, suffixe: str = ""
     return gabarit.format(x) + suffixe
 
 
+# ---------------------------------------------------------------------------
+# Visualisation libre
+# ---------------------------------------------------------------------------
+
+# Au-delà, le tracé s'alourdit sans rien montrer de plus : deux points ne
+# peuvent pas occuper le même pixel.
+MAX_POINTS_TRACES = 5000
+
+
+@st.cache_data(show_spinner=False)
+def fichiers_du_dossier(racine: str, dossier: str) -> list[Path]:
+    return lecteurs.lister_fichiers(Path(racine) / dossier)
+
+
+@st.cache_data(show_spinner=False)
+def canaux_du_fichier(chemin: str) -> dict[str, str]:
+    """Nom de canal → unité, pour un fichier précis.
+
+    On interroge le fichier sélectionné, et non l'échantillon de l'inventaire :
+    rien ne garantit que tous les fichiers d'un dossier portent les mêmes canaux.
+
+    Les canaux maîtres sont écartés : porter le temps en ordonnée d'un tracé en
+    fonction du temps n'apprend rien, et ils se retrouveraient proposés par
+    défaut puisqu'ils ouvrent la liste de chaque groupe. Le critère est double
+    — nom de temps ET unité en secondes — pour ne pas écarter par erreur un
+    canal physique dont le nom commencerait par « t ».
+    """
+    return {
+        d.nom: d.unite
+        for d in lecteurs.decrire_canaux(chemin)
+        if not (d.nom.strip().lower() in ("t", "time", "temps", "timestamp")
+                and d.unite.strip().lower() in ("s", "sec", "second", "secondes"))
+    }
+
+
+def tracer_visualisation(
+    fichier: Path, noms: list[str], catalogue: dict[str, str],
+    derivee_active: bool, canal_a: str, operateur: str, canal_b: str,
+) -> None:
+    """Charge les canaux demandés et les trace, groupés par unité."""
+    try:
+        with st.spinner("Lecture du fichier (lecture seule)…"):
+            signaux = lecteurs.charger_canaux(
+                fichier, noms, float(st.session_state["freq"])
+            )
+    except Exception as exc:
+        st.error(f"Chargement impossible : {exc}")
+        return
+
+    t = signaux.t
+    if t.size < 2:
+        st.warning("Fenêtre de temps commune trop courte pour un tracé.")
+        return
+
+    borne_min, borne_max = float(t[0]), float(t[-1])
+    debut, fin = st.slider(
+        "Plage de temps (s)", borne_min, borne_max, (borne_min, borne_max),
+        key=f"vue::plage::{fichier.name}",
+        help="Resserrer la plage est le seul moyen de voir un détail rapide : "
+        "à l'échelle d'un cycle entier, quelques dizaines de millisecondes sont invisibles.",
+    )
+    fenetre = (t >= debut) & (t <= fin)
+    if fenetre.sum() < 2:
+        st.warning("Plage trop étroite.")
+        return
+
+    courbes = {nom: signaux.scalaires[nom][fenetre] for nom in noms
+               if nom in signaux.scalaires}
+    unites = {nom: catalogue.get(nom, "") for nom in courbes}
+
+    if derivee_active and canal_a in courbes and canal_b in courbes:
+        signe = 1.0 if operateur == "+" else -1.0
+        etiquette = f"{canal_a} {operateur} {canal_b}"
+        courbes[etiquette] = courbes[canal_a] + signe * courbes[canal_b]
+        unites[etiquette] = catalogue.get(canal_a, "")
+
+    pas = max(1, int(np.ceil(fenetre.sum() / MAX_POINTS_TRACES)))
+    figure = graphiques.figure_visualisation(
+        t[fenetre][::pas],
+        {nom: valeurs[::pas] for nom, valeurs in courbes.items()},
+        unites,
+        titre=f"{fichier.name}  —  {fin - debut:.1f} s affichées",
+        decimation=pas,
+    )
+    st.pyplot(figure, use_container_width=True)
+
+    tampon = io.BytesIO()
+    figure.savefig(tampon, format="png", dpi=150, bbox_inches="tight")
+    st.download_button(
+        "Télécharger ce tracé (.png)", data=tampon.getvalue(),
+        file_name=f"{fichier.stem}_visualisation.png", mime="image/png",
+    )
+    st.caption(signaux.diagnostic.resume())
+
+
 def _appliquer_inventaire(inventaire: dict[str, dict]) -> None:
     """Pose les propositions de mapping et de type, sans écraser une saisie."""
     depart = E.etat_initial(inventaire)
@@ -315,14 +413,16 @@ with st.sidebar:
 
 
 onglets = st.tabs(
-    ["1 · Exploration", "2 · Canaux", "3 · Essais", "4 · Hypothèses", "5 · Analyse & résultats"]
+    ["1 · Exploration", "2 · Visualisation", "3 · Canaux", "4 · Essais",
+     "5 · Hypothèses", "6 · Analyse & résultats"]
 )
+EXPLORATION, VISUALISATION, CANAUX, ESSAIS, HYPOTHESES, ANALYSE = range(6)
 
 # ---------------------------------------------------------------------------
 # 1 · Exploration
 # ---------------------------------------------------------------------------
 
-with onglets[0]:
+with onglets[EXPLORATION]:
     st.subheader("Inventaire des canaux")
     st.markdown(
         "<div class='aide'>Lit un échantillon de fichiers par sous-dossier et liste "
@@ -382,7 +482,97 @@ with onglets[0]:
 # 2 · Canaux
 # ---------------------------------------------------------------------------
 
-with onglets[1]:
+with onglets[VISUALISATION]:
+    st.subheader("Visualisation des signaux")
+    inventaire = st.session_state["inventaire"]
+    if not inventaire:
+        st.info("Lance d'abord l'inventaire (onglet 1).")
+    else:
+        st.markdown(
+            "<div class='aide'>Trace n'importe quel canal en fonction du temps, fichier par "
+            "fichier. Sert à vérifier qu'une acquisition contient bien ce qu'on croit, et que "
+            "son allure correspond au type d'essai déclaré — un contrôle que l'analyse ne peut "
+            "pas faire à votre place.<br>"
+            "Les courbes sont <b>groupées par unité</b>, un panneau par unité : superposer un "
+            "couple et un régime sur un même axe écraserait l'un des deux.</div>",
+            unsafe_allow_html=True,
+        )
+        st.write("")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            dossier = st.selectbox("Essai", list(inventaire), key="vue::dossier")
+        fichiers = fichiers_du_dossier(st.session_state["racine"], dossier)
+        if not fichiers:
+            st.warning("Aucune acquisition exploitable dans ce dossier.")
+        else:
+            with c2:
+                choix = st.selectbox(
+                    "Fichier", [f.name for f in fichiers], key="vue::fichier",
+                    help=f"{len(fichiers)} acquisition(s) dans ce dossier.",
+                )
+            fichier = next(f for f in fichiers if f.name == choix)
+
+            try:
+                catalogue = canaux_du_fichier(str(fichier))
+            except Exception as exc:
+                catalogue = {}
+                st.error(f"Lecture impossible : {exc}")
+
+            if catalogue:
+                noms = list(catalogue)
+                # Proposition de départ : les canaux déjà mappés, s'ils
+                # existent dans CE fichier.
+                defaut = [
+                    st.session_state.get(f"gcanal::{role}")
+                    for role in E.ORDRE_CANAUX
+                ]
+                defaut = [n for n in defaut if isinstance(n, str) and n in noms][:3]
+                selection = st.multiselect(
+                    "Canaux à tracer", noms,
+                    default=st.session_state.get("vue::canaux") or defaut,
+                    key="vue::canaux",
+                    help=f"{graphiques.MAX_COURBES} courbes au maximum : au-delà, deux séries "
+                    "ne sont plus distinguables de façon fiable.",
+                )
+
+                st.markdown("**Courbe dérivée** — combinaison de deux canaux")
+                d1, d2, d3, d4 = st.columns([1, 2, 0.7, 2])
+                with d1:
+                    activer = _case("Activer", "vue::derivee_active", False)
+                with d2:
+                    gauche = st.selectbox("Canal A", noms, key="vue::derivee_a",
+                                          disabled=not activer)
+                with d3:
+                    operateur = st.selectbox("Opé.", ["+", "−"], key="vue::derivee_op",
+                                             disabled=not activer)
+                with d4:
+                    droite = st.selectbox("Canal B", noms, key="vue::derivee_b",
+                                          disabled=not activer,
+                                          index=min(1, len(noms) - 1))
+
+                a_tracer = list(selection)
+                if activer:
+                    if catalogue.get(gauche) != catalogue.get(droite):
+                        st.warning(
+                            f"« {gauche} » est en {catalogue.get(gauche) or 'sans unité'} et "
+                            f"« {droite} » en {catalogue.get(droite) or 'sans unité'} : "
+                            "leur combinaison n'a pas de sens physique."
+                        )
+                    a_tracer = list(dict.fromkeys(a_tracer + [gauche, droite]))
+
+                if not a_tracer:
+                    st.info("Sélectionne au moins un canal.")
+                elif len(selection) > graphiques.MAX_COURBES:
+                    st.error(
+                        f"{len(selection)} canaux sélectionnés, {graphiques.MAX_COURBES} au "
+                        "maximum. Au-delà, deux courbes cessent d'être distinguables."
+                    )
+                else:
+                    tracer_visualisation(fichier, a_tracer, catalogue,
+                                         activer, gauche, operateur, droite)
+
+with onglets[CANAUX]:
     st.subheader("Mapping des canaux")
     inventaire = st.session_state["inventaire"]
     if not inventaire:
@@ -452,7 +642,7 @@ with onglets[1]:
 # 3 · Essais
 # ---------------------------------------------------------------------------
 
-with onglets[2]:
+with onglets[ESSAIS]:
     st.subheader("Déclaration des essais")
     inventaire = st.session_state["inventaire"]
     if not inventaire:
@@ -495,7 +685,7 @@ with onglets[2]:
 # 4 · Hypothèses
 # ---------------------------------------------------------------------------
 
-with onglets[3]:
+with onglets[HYPOTHESES]:
     st.subheader("Hypothèses de traitement et saisies utilisateur")
     st.markdown(
         "<div class='aide'>Ces valeurs sont reprises telles quelles dans le § Hypothèses "
@@ -634,12 +824,12 @@ def _configuration_courante() -> dict | None:
     )
 
 
-with onglets[4]:
+with onglets[ANALYSE]:
     st.subheader("Analyse")
     configuration = _configuration_courante()
 
     if configuration is None:
-        st.info("Complète les onglets 1 à 4.")
+        st.info("Complète les onglets 1 à 5.")
     else:
         cfg, erreurs = E.valider(configuration)
         if erreurs:

@@ -389,3 +389,36 @@ def test_conclusions_tiennent_en_trois_phrases():
         diag = M.diagnostiquer("l'essai X", reg, recal, r, 0.1, PE, ParamsDiagnostic())
         phrases = [p for p in diag.conclusion.split(". ") if p.strip()]
         assert len(phrases) <= 3, f"{diag.cause} : {len(phrases)} phrases"
+
+
+# ---------------------------------------------------------------------------
+# Visualisation
+# ---------------------------------------------------------------------------
+
+
+def test_la_visualisation_groupe_les_courbes_par_unite():
+    """Jamais deux échelles verticales : une unité, un panneau."""
+    from amdec_correlation import graphiques
+
+    t = np.linspace(0, 10, 200)
+    courbes = {
+        "couple_G": 100 * np.sin(t), "couple_D": 100 * np.cos(t),
+        "regime": 2000 + 500 * np.sin(t), "temperature": 20 + t,
+    }
+    unites = {"couple_G": "N.m", "couple_D": "N.m", "regime": "rpm", "temperature": "degC"}
+
+    figure = graphiques.figure_visualisation(t, courbes, unites)
+    # Trois unités distinctes → trois panneaux.
+    assert len(figure.axes) == 3
+    assert [ax.get_ylabel() for ax in figure.axes] == ["N.m", "rpm", "degC"]
+
+
+def test_une_courbe_seule_est_nommee_par_le_titre_sans_legende():
+    """Règle de palette : une série unique n'a pas besoin d'encadré de légende."""
+    from amdec_correlation import graphiques
+
+    t = np.linspace(0, 5, 50)
+    figure = graphiques.figure_visualisation(t, {"couple": t}, {"couple": "N.m"})
+    ax = figure.axes[0]
+    assert ax.get_title(loc="left") == "couple"
+    assert ax.get_legend() is None

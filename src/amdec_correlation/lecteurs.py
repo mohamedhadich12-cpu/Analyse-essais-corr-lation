@@ -28,11 +28,16 @@ from typing import Callable, Iterable
 
 __all__ = [
     "Lecteur",
+    "MappingLibre",
     "enregistrer",
     "lecteur_pour",
     "extensions_supportees",
     "formats_supportes",
     "lister_fichiers",
+    "doublons_de_format",
+    "decrire_canaux",
+    "charger_signaux",
+    "charger_canaux",
     "FormatNonSupporte",
 ]
 
@@ -123,6 +128,32 @@ def doublons_de_format(fichiers: Iterable[Path]) -> dict[str, list[Path]]:
     for chemin in fichiers:
         par_racine.setdefault(chemin.stem.lower(), []).append(chemin)
     return {racine: sorted(v) for racine, v in par_racine.items() if len(v) > 1}
+
+
+@dataclass(frozen=True)
+class MappingLibre:
+    """Présente une liste de canaux quelconques comme un mapping de rôles.
+
+    Les lecteurs chargent des canaux désignés par un *rôle* (couple mesuré,
+    régime…). Pour la visualisation on veut au contraire tracer des canaux
+    choisis librement, sans leur attribuer de rôle. Cet adaptateur les expose
+    sous la forme attendue par les lecteurs — la clé est alors le nom réel du
+    canal — ce qui évite de dupliquer la logique de chargement et de
+    rééchantillonnage.
+    """
+
+    canaux: tuple[str, ...]
+    etat: tuple[str, ...] = ()
+
+    def presents(self) -> dict[str, str]:
+        return {nom: nom for nom in self.canaux}
+
+
+def charger_canaux(chemin: str | Path, noms: Iterable[str], frequence_Hz: float):
+    """Charge des canaux désignés par leur nom réel, sur une grille commune."""
+    return lecteur_pour(chemin).charger(
+        chemin, MappingLibre(tuple(dict.fromkeys(noms))), frequence_Hz
+    )
 
 
 def decrire_canaux(chemin: str | Path) -> list:

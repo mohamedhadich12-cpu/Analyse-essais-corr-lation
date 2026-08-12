@@ -198,3 +198,40 @@ def test_le_doublon_remonte_dans_les_avertissements_de_la_campagne(tmp_path):
     })
     campagne = analyser(cfg)
     assert any("sous 2 formats" in a for a in campagne.avertissements)
+
+
+# ---------------------------------------------------------------------------
+# Chargement libre (visualisation)
+# ---------------------------------------------------------------------------
+
+
+def test_charger_canaux_accepte_des_noms_quelconques(tmp_path):
+    """La visualisation trace des canaux choisis librement, sans rôle imposé."""
+    from generer_mf4_synthetique import NOMS
+
+    fichier = tmp_path / "essai.mf4"
+    balayage(fichier)
+    demandes = [NOMS["gauche"], NOMS["reference_droite"], NOMS["regime"]]
+
+    signaux = L.charger_canaux(fichier, demandes, 50.0)
+
+    assert set(signaux.scalaires) == set(demandes)
+    assert signaux.unites[NOMS["regime"]] == "rpm"
+    # Tous les canaux partagent la grille de temps commune.
+    for valeurs in signaux.scalaires.values():
+        assert valeurs.shape == signaux.t.shape
+
+
+def test_charger_canaux_dedoublonne_la_demande(tmp_path):
+    from generer_mf4_synthetique import NOMS
+
+    fichier = tmp_path / "essai.mf4"
+    balayage(fichier)
+    signaux = L.charger_canaux(fichier, [NOMS["gauche"], NOMS["gauche"]], 50.0)
+    assert list(signaux.scalaires) == [NOMS["gauche"]]
+
+
+def test_mapping_libre_expose_les_canaux_comme_des_roles():
+    mapping = L.MappingLibre(("A", "B"))
+    assert mapping.presents() == {"A": "A", "B": "B"}
+    assert mapping.etat == ()

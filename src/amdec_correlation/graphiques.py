@@ -469,3 +469,82 @@ def figure_redondance(
     fig.savefig(chemin)
     plt.close(fig)
     return chemin
+
+
+# ---------------------------------------------------------------------------
+# 6. Visualisation libre de canaux
+# ---------------------------------------------------------------------------
+
+# Les huit emplacements de la palette catégorielle, dans leur ordre validé.
+# Sur des courbes, cet ordre garantit que deux séries voisines restent
+# distinguables, y compris en vision des couleurs déficiente.
+SERIES = (
+    "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+    "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+)
+MAX_COURBES = len(SERIES)
+
+
+def figure_visualisation(
+    t: np.ndarray,
+    courbes: dict[str, np.ndarray],
+    unites: dict[str, str],
+    chemin: Path | None = None,
+    titre: str = "",
+    decimation: int = 1,
+):
+    """Trace des canaux quelconques en fonction du temps.
+
+    Les courbes sont **groupées par unité**, un panneau par unité, tous alignés
+    sur le même axe des temps. C'est le seul tracé correct : superposer un
+    couple en N·m et un régime en tr/min sur un axe unique écraserait l'un des
+    deux, et leur donner deux échelles verticales inventerait une corrélation
+    que les données ne portent pas.
+
+    Une couleur suit un canal d'un panneau à l'autre : le lecteur apprend
+    l'association une fois.
+    """
+    _appliquer_style()
+    noms = list(courbes)
+    couleurs = {nom: SERIES[i % len(SERIES)] for i, nom in enumerate(noms)}
+
+    groupes: dict[str, list[str]] = {}
+    for nom in noms:
+        groupes.setdefault(unites.get(nom) or "sans unité", []).append(nom)
+
+    # Bandeau réservé au titre général et à la légende du premier panneau : sans
+    # cette réserve, les deux se superposent au titre du panneau.
+    BANDEAU = 0.95  # pouces
+    hauteur = 1.6 + BANDEAU + 2.15 * len(groupes)
+    figure, axes = plt.subplots(
+        len(groupes), 1, figsize=(9.6, hauteur), sharex=True, squeeze=False,
+        gridspec_kw={"hspace": 0.34},
+    )
+    axes = axes.ravel()
+
+    for ax, (unite, membres) in zip(axes, groupes.items()):
+        for nom in membres:
+            ax.plot(t, courbes[nom], color=couleurs[nom], label=nom, zorder=3)
+        # Un seul canal : le titre le nomme, aucune légende n'est nécessaire.
+        # Plusieurs : la légende les nomme et l'axe porte l'unité — un titre de
+        # panneau ne ferait que répéter l'un ou l'autre.
+        _habiller(ax, membres[0] if len(membres) == 1 else "", "", unite)
+        _marge_y(ax, haut=0.10, bas=0.10)
+        if len(membres) > 1:
+            _legende_hors_trace(ax, ncol=min(3, len(membres)))
+
+    axes[-1].set_xlabel("Temps (s)")
+    figure.subplots_adjust(top=1 - BANDEAU / hauteur)
+    if titre:
+        figure.suptitle(titre, x=0.012, y=1 - 0.22 / hauteur, ha="left", fontsize=11,
+                        color=ENCRE, weight="bold")
+    if decimation > 1:
+        figure.text(
+            0.012, 0.002,
+            f"Affichage allégé : 1 point sur {decimation}. Les calculs, eux, "
+            "portent sur la totalité des échantillons.",
+            ha="left", fontsize=7.5, color=ATTENUE,
+        )
+    if chemin is not None:
+        figure.savefig(chemin)
+    return figure

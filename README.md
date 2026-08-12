@@ -27,10 +27,14 @@ seule sur les `.mf4`. Rien dans ce dépôt ne contient de données d'essai
 ## Guide utilisateur
 
 **[`docs/Guide_correlation_couple_banc_GMP.pdf`](docs/Guide_correlation_couple_banc_GMP.pdf)** —
-23 pages : l'interface onglet par onglet, les types d'essai, chaque indicateur
+25 pages : l'interface onglet par onglet, les types d'essai, chaque indicateur
 (définition, méthode, hypothèse structurante, comment le lire), le bilan
 d'incertitude, les cartes de contrôle et un glossaire. À lire avant la première
 utilisation.
+
+**[`docs/allures_couple_par_essai.png`](docs/allures_couple_par_essai.png)** — la forme
+que doit avoir le couple pour chaque essai, pour vérifier d'un coup d'œil que le type
+déclaré correspond au contenu réel des fichiers.
 
 Pour le régénérer après une évolution de l'interface : `python docs/source/captures.py`
 puis `python docs/construire_guide.py` (voir l'entête de chaque script).
@@ -72,16 +76,17 @@ chiffre issu de ces fichiers ne doit figurer dans le rapport.
 python scripts/03_interface.py
 ```
 
-Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Cinq onglets
+Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Six onglets
 suivent le déroulé de l'analyse :
 
 | Onglet | Ce qu'on y fait |
 |---|---|
 | **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
-| **2 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
-| **3 · Essais** | type d'essai, ligne droite, groupe de remontage |
-| **4 · Hypothèses** | toutes les bornes de traitement, et les deux saisies utilisateur |
-| **5 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
+| **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux, combinaison de deux d'entre eux (somme ou différence) et resserrement de la plage de temps. Les courbes sont groupées **par unité**, un panneau par unité |
+| **3 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
+| **4 · Essais** | type d'essai, ligne droite, groupe de remontage |
+| **5 · Hypothèses** | toutes les bornes de traitement, et les deux saisies utilisateur |
+| **6 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
 
 L'interface **ne contient aucun traitement** : elle assemble une configuration,
 appelle la même bibliothèque que la ligne de commande et affiche ce qui en sort.
