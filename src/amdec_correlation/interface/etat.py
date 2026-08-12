@@ -150,6 +150,7 @@ def construire_dict(
     thermique: dict[str, Any],
     diagnostic: dict[str, Any],
     canaux_communs: dict[str, Any] | None = None,
+    ligne_droite: bool = False,
 ) -> dict[str, Any]:
     """Assemble le dictionnaire de configuration, au format du YAML de référence.
 
@@ -199,8 +200,9 @@ def construire_dict(
         },
         "acquisition": {"frequence_reechantillonnage_Hz": float(frequence_Hz)},
         "remontage": {"realise": remontage_realise},
+        "ligne_droite": bool(ligne_droite),
         "canaux": {"defaut": defaut, "par_dossier": canaux_nettoyes},
-        "essais": essais_nettoyes,
+        **({"essais": essais_nettoyes} if essais_nettoyes else {}),
         "paliers": dict(paliers),
         "intercorrelation": dict(intercorrelation),
         "zero": dict(zero),
@@ -272,6 +274,7 @@ def scalaires_depuis_dict(brut: dict[str, Any]) -> dict[str, Any]:
     realise = (brut.get("remontage") or {}).get("realise")
 
     valeurs: dict[str, Any] = {
+        "ligne_droite": bool(brut.get("ligne_droite", False)),
         "racine": str(brut.get("racine_donnees") or ""),
         "dossier_sortie": str(brut.get("dossier_sortie") or "sortie"),
         "pe": float(brut.get("pleine_echelle_Nm") or 1500.0),

@@ -97,7 +97,7 @@
 <div class="couv">
   <div class="barre"></div>
   <h1>Corrélation couple<br>transmissions ↔ banc GMP</h1>
-  <div class="st">Guide d'utilisation — interface, types d'essai et indicateurs</div>
+  <div class="st">Guide d'utilisation — interface, zones détectées et indicateurs</div>
   <p class="resume">
     Cet outil compare le couple mesuré par les transmissions instrumentées
     (télémétrie Manner PCM16) au couple de référence du banc GMP, et produit les
@@ -122,9 +122,9 @@
 <div class="sommaire">
 <ol>
   <li>Principe et garanties<span>ce que l'outil fait, ce qu'il refuse de faire</span></li>
-  <li>Démarrer<span>installation, lancement, déroulé en cinq étapes</span></li>
-  <li>L'interface onglet par onglet<span>exploration, canaux, essais, hypothèses, résultats</span></li>
-  <li>Les types d'essai<span>ce que chaque type suppose et ce qu'il produit</span></li>
+  <li>Démarrer<span>installation, lancement, déroulé en six onglets</span></li>
+  <li>L'interface onglet par onglet<span>exploration, canaux, zones, hypothèses, résultats</span></li>
+  <li>Ce que l'outil cherche dans les essais<span>les zones exploitables, et ce que chacune produit</span></li>
   <li>Les indicateurs calculés<span>définition, méthode, hypothèses, lecture</span></li>
   <li>Le diagnostic qualitatif<span>la grille offset / gain / synchronisation / modèle</span></li>
   <li>Le bilan d'incertitude<span>composition, lois, facteur d'élargissement</span></li>
@@ -142,11 +142,22 @@
 <p>
 L'outil lit des acquisitions au format MDF — <code>.mf4</code>, <code>.mdf</code> et
 <code>.aif</code> (exports ETAS INCA, qui sont des conteneurs MDF sous une extension propre
-à l'outil) — rangées par type d'essai dans des sous-dossiers. Pour chaque essai il confronte le couple mesuré par les
-transmissions instrumentées au couple de référence du banc, puis en tire les
-indicateurs du chapitre 10. Il produit un rapport Markdown et des figures PNG
-directement insérables.
+à l'outil). On lui désigne <strong>un dossier</strong> : aucun classement, aucune déclaration
+de type d'essai. Il confronte le couple mesuré par les transmissions instrumentées au couple
+de référence du banc, puis en tire les indicateurs du chapitre 10. Il produit un rapport
+Markdown et des figures PNG directement insérables.
 </p>
+
+<div class="garde">
+<p><span class="etiq">On ne classe pas les fichiers, on extrait leurs zones.</span> Plutôt que
+de demander quel dossier contient des balayages et lequel contient des cycles, l'outil examine
+chaque acquisition pour <strong>ce qu'elle contient réellement</strong> — paliers stabilisés,
+plage dynamique, relevés de zéro — et calcule chaque grandeur à partir des zones qui la
+concernent, tous fichiers confondus. Un même fichier peut en alimenter plusieurs : un cycle
+qui débute et s'achève à l'arrêt fournit ses zéros, sa plage dynamique, et parfois quelques
+paliers. Le chapitre 4 détaille ce qui est cherché, et l'onglet <em>Zones détectées</em>
+montre ce qui a été trouvé, fichier par fichier.</p>
+</div>
 
 <h3>Deux garanties tenues par le code</h3>
 
@@ -248,7 +259,7 @@ seule solution raisonnable ; un compilateur ne se justifie pas.
   <tr><td><code>py -3.13 -m venv .venv</code></td><td>crée l'environnement isolé</td></tr>
   <tr><td><code>.venv\Scripts\activate</code></td><td>l'active (à refaire à chaque terminal)</td></tr>
   <tr><td><code>python -m pip install -r requirements.txt</code></td><td>installe les dépendances</td></tr>
-  <tr><td><code>python -m pytest tests\ -q</code></td><td>vérifie l'installation — doit afficher <em>78 passed</em></td></tr>
+  <tr><td><code>python -m pytest tests\ -q</code></td><td>vérifie l'installation — doit afficher <em>116 passed</em></td></tr>
   <tr><td><code>python scripts\03_interface.py</code></td><td>lance l'interface</td></tr>
 </table>
 
@@ -272,13 +283,13 @@ l'intérieur de votre racine d'acquisitions, il apparaîtrait comme un essai sup
 des valeurs fabriquées se mélangeraient à vos résultats.</p>
 </div>
 
-<h3>Le déroulé, en cinq étapes</h3>
+<h3>Le déroulé, en six onglets</h3>
 <table>
   <tr><th style="width:30mm">Onglet</th><th>Ce qu'on y fait</th><th style="width:38mm">Ce qui en sort</th></tr>
   <tr><td><strong>1 · Exploration</strong></td><td>lire les acquisitions, découvrir les canaux réellement présents</td><td>liste des canaux, unités, cadences, bases de temps</td></tr>
   <tr><td><strong>2 · Visualisation</strong></td><td>tracer n'importe quel canal, fichier par fichier</td><td>la confirmation que l'acquisition contient ce qu'on croit</td></tr>
   <tr><td><strong>3 · Canaux</strong></td><td>associer chaque rôle à un canal réel</td><td>le mapping</td></tr>
-  <tr><td><strong>4 · Essais</strong></td><td>déclarer le type de chaque essai et ses conditions</td><td>le plan de traitement</td></tr>
+  <tr><td><strong>4 · Zones détectées</strong></td><td>vérifier ce que l'outil a trouvé dans chaque acquisition</td><td>le relevé de ce qui alimente quoi</td></tr>
   <tr><td><strong>5 · Hypothèses</strong></td><td>fixer les bornes de traitement et les deux saisies utilisateur</td><td>les hypothèses citées dans le rapport</td></tr>
   <tr><td><strong>6 · Analyse</strong></td><td>lancer, lire, exporter</td><td>rapport Markdown + figures PNG</td></tr>
 </table>
@@ -299,15 +310,17 @@ d'essai comme trace de ce qui a été fait.</p>
 
 <h3>3.1 — Exploration</h3>
 <p>
-L'outil lit un échantillon de fichiers par sous-dossier et liste tous les canaux présents,
-avec leur unité, leur groupe, leur nombre d'échantillons, leur cadence et leur plage de
-temps. <strong>C'est ce relevé qui sert à confirmer les libellés</strong> — rien n'est supposé
-d'une convention de nommage.
+L'outil lit un échantillon de fichiers et liste tous les canaux présents, avec leur unité,
+leur groupe, leur nombre d'échantillons, leur cadence et leur plage de temps. <strong>C'est ce
+relevé qui sert à confirmer les libellés</strong> — rien n'est supposé d'une convention de
+nommage. Les acquisitions posées directement dans le dossier racine sont regroupées sous
+<code>(racine)</code> ; les sous-dossiers, s'il y en a, forment chacun un groupe — c'est un
+simple classement d'affichage, sans effet sur les calculs.
 </p>
 
 <figure>
   <img src="img/01_exploration.png" alt="Onglet Exploration : liste des canaux d'un essai">
-  <figcaption>Onglet 1 — chaque sous-dossier se déplie sur la liste complète de ses canaux.</figcaption>
+  <figcaption>Onglet 1 — chaque groupe se déplie sur la liste complète de ses canaux.</figcaption>
 </figure>
 
 <p>Deux avertissements peuvent apparaître ici, et tous deux méritent attention :</p>
@@ -325,7 +338,8 @@ d'une convention de nommage.
 <p>
 Trace n'importe quel canal en fonction du temps, <strong>fichier par fichier</strong>. C'est le
 seul endroit où l'on vérifie qu'une acquisition contient bien ce qu'on croit, et que son allure
-correspond au type d'essai déclaré — un contrôle que l'analyse ne peut pas faire à votre place.
+correspond à ce que l'onglet <em>Zones détectées</em> y a repéré — un contrôle que l'analyse ne
+peut pas faire à votre place.
 </p>
 
 <figure>
@@ -363,7 +377,7 @@ par mots-clés — à vérifier ligne par ligne, jamais des certitudes.
 
 <figure>
   <img src="img/02_canaux.png" alt="Onglet Canaux : mapping commun à toute la campagne">
-  <figcaption>Onglet 2 — mapping commun. Quatre voies de couple : mesuré gauche et droite,
+  <figcaption>Onglet 3 — mapping commun. Quatre voies de couple : mesuré gauche et droite,
     référence banc gauche et droite.</figcaption>
 </figure>
 
@@ -389,34 +403,68 @@ explicitement <em>non calculables</em> les grandeurs qui en dépendent, plutôt 
 C'est toujours préférable à un mapping approximatif.</p>
 </div>
 
-<h3>3.4 — Essais</h3>
+<h3>3.4 — Zones détectées</h3>
+<p>
+<strong>Rien n'est à déclarer ici.</strong> Le bouton <em>Détecter les zones</em> relit les
+acquisitions et affiche, fichier par fichier, ce qui y a été trouvé et ce que chacun alimente.
+C'est un relevé à vérifier, pas une saisie.
+</p>
+
 <figure>
-  <img src="img/03_essais.png" alt="Onglet Essais : type, ligne droite, groupe de remontage">
-  <figcaption>Onglet 3 — trois décisions par essai, dont deux conditionnent l'existence
-    d'indicateurs entiers.</figcaption>
+  <img src="img/03_zones.png" alt="Onglet Zones détectées : ce que chaque acquisition alimente">
+  <figcaption>Onglet 4 — les compteurs en haut disent combien d'acquisitions alimentent chaque
+    grandeur ; le tableau dit lesquelles, et pourquoi.</figcaption>
 </figure>
 
 <table>
-  <tr><th style="width:34mm">Champ</th><th>Ce qu'il commande</th></tr>
-  <tr><td><strong>Type</strong></td>
-      <td>Le traitement appliqué. Voir le chapitre 4.</td></tr>
-  <tr><td><strong>Ligne droite</strong></td>
-      <td>À cocher si les deux transmissions voient le même couple <em>par construction</em>. Sur
-      banc, cela revient à : les deux sorties sont-elles chargées symétriquement ? C'est la
-      condition pour que le résidu gauche − droite soit un indicateur métrologique et non un
-      écart physique réel. À laisser décoché sur tout essai sollicitant volontairement le
-      différentiel, ou s'accompagnant de patinage avec intervention de l'antipatinage d'un
-      seul côté.</td></tr>
-  <tr><td><strong>Groupe de remontage</strong></td>
-      <td>Étiquette libre (« avant » / « apres »). Il en faut <strong>deux distinctes</strong> dans la
-      campagne pour que la répétabilité après remontage existe.</td></tr>
+  <tr><th style="width:34mm">Colonne</th><th>Ce qu'elle dit</th></tr>
+  <tr><td><strong>Alimente</strong></td>
+      <td>La conclusion du relevé : les grandeurs auxquelles cette acquisition contribue. Les
+      colonnes suivantes en sont la justification.</td></tr>
+  <tr><td><strong>Paliers</strong> / <strong>Niveaux</strong></td>
+      <td>Nombre de plages stabilisées trouvées, et nombre de niveaux de couple distincts qu'elles
+      couvrent. <strong>Trois niveaux distincts</strong> au moins pour qu'une régression ait un
+      sens ; en deçà, l'acquisition n'alimente que la répétabilité.</td></tr>
+  <tr><td><strong>Montée/desc.</strong></td>
+      <td>Des paliers de sens opposés existent au même niveau : c'est ce qui rend l'hystérésis
+      calculable, et cela se joue <em>à l'intérieur d'un fichier</em>.</td></tr>
+  <tr><td><strong>Dynamique (s)</strong></td>
+      <td>Durée de la plage d'activité continue retenue pour l'intercorrélation. Vide si le signal
+      est trop stationnaire pour qu'un retard soit identifiable.</td></tr>
+  <tr><td><strong>Zéros déb./fin</strong></td>
+      <td>Deux plages de repos distinctes, l'une en début l'autre en fin d'acquisition : la
+      condition d'existence de la dérive de zéro.</td></tr>
 </table>
+
+<div class="astuce">
+<p><span class="etiq">Automatique ne veut pas dire opaque.</span> Si une acquisition n'alimente
+pas ce que vous en attendiez, ce tableau dit laquelle et sur quel critère. Le réglage se fait
+à l'onglet <em>Hypothèses</em> — jamais en forçant un résultat.</p>
+</div>
+
+<div class="garde">
+<p><span class="etiq">Deux choses restent à déclarer</span>, dans la barre latérale, parce
+qu'aucun traitement du signal ne peut les établir :</p>
+<table style="margin-top:.4em">
+  <tr><th style="width:44mm">Saisie</th><th>Ce qu'elle commande</th></tr>
+  <tr><td><strong>Sorties du banc chargées symétriquement</strong></td>
+      <td>À cocher si les deux transmissions voient le même couple <em>par construction</em>.
+      C'est la condition pour que le résidu gauche − droite soit un indicateur métrologique et
+      non un écart physique réel. À laisser décoché si un essai sollicite volontairement le
+      différentiel, ou s'accompagne de patinage avec intervention de l'antipatinage d'un seul
+      côté.</td></tr>
+  <tr><td><strong>Démontage / remontage réalisé</strong></td>
+      <td>Déclare si la chaîne de mesure a été déposée puis reposée au cours de la campagne.
+      <em>Non</em> rend la répétabilité après remontage non calculable pour la bonne raison :
+      la grandeur n'est pas définie ici, elle n'a pas été oubliée.</td></tr>
+</table>
+</div>
 
 <h3>3.5 — Hypothèses</h3>
 <figure>
   <img src="img/04_hypotheses.png" alt="Onglet Hypothèses : saisies utilisateur et bornes de traitement">
-  <figcaption>Onglet 4 — toutes ces valeurs sont reprises telles quelles dans le § Hypothèses
-    du rapport.</figcaption>
+  <figcaption>Onglet 5 — toutes ces valeurs sont reprises telles quelles dans le § Hypothèses
+    du rapport. Ce sont elles qui décident aussi de la détection des zones.</figcaption>
 </figure>
 
 <p>
@@ -439,7 +487,7 @@ seulement moins complet.
 <h3>3.6 — Analyse et résultats</h3>
 <figure>
   <img src="img/05_resultats.png" alt="Onglet Analyse : chiffres clés et tableau récapitulatif">
-  <figcaption>Onglet 5 — quatre chiffres clés, puis le tableau récapitulatif du chapitre 10.</figcaption>
+  <figcaption>Onglet 6 — quatre chiffres clés, puis le tableau récapitulatif du chapitre 10.</figcaption>
 </figure>
 
 <p>Sept vues sont disponibles après l'analyse :</p>
@@ -450,7 +498,7 @@ seulement moins complet.
   <tr><td>Figures</td><td>toutes les figures produites</td></tr>
   <tr><td>Incertitude</td><td>le bilan détaillé, contribution par contribution</td></tr>
   <tr><td>Cartes de contrôle</td><td>μ0, σ0 et les seuils CUSUM / EWMA du chapitre 11</td></tr>
-  <tr><td>Détail par essai</td><td>tout ce qui a été calculé, essai par essai, y compris les échecs</td></tr>
+  <tr><td>Détail par acquisition</td><td>ce qui a été trouvé dans chaque fichier et ce qu'il a alimenté, y compris les échecs — c'est là qu'un chiffre du tableau se remonte à sa source</td></tr>
   <tr><td>Export</td><td>rapport Markdown et archive des figures PNG</td></tr>
 </table>
 
@@ -461,91 +509,127 @@ configuration</em> écrit un fichier sur le poste ; la barre latérale propose e
 </div>
 
 <figure>
-  <img src="img/08_figure_exemple.png" alt="Figure de régression du balayage couple">
-  <figcaption>Exemple de figure produite : régression du balayage couple, avec le panneau des
+  <img src="img/08_figure_exemple.png" alt="Figure de régression sur les paliers stabilisés">
+  <figcaption>Exemple de figure produite : régression sur les paliers stabilisés de toute la
+    campagne, avec le panneau des
     résidus. Écrite en PNG dans le dossier de sortie, prête pour le rapport.</figcaption>
 </figure>
 </div>
 
 <!-- ══════════════════ 4 ══════════════════ -->
 <div class="section">
-<h2>4. Les types d'essai</h2>
+<h2>4. Ce que l'outil cherche dans les essais</h2>
 
 <p>
-Le type déclaré détermine le traitement. Trois types existent ; le choix se fait sur la
-<strong>nature des données</strong>, pas sur le nom de l'essai.
+Aucun type n'est à déclarer : ce sont les <strong>zones</strong> présentes dans chaque
+acquisition qui déterminent ce qu'elle produit. Trois familles sont recherchées — paliers
+stabilisés, plage dynamique, plages de repos — et un même fichier peut contenir les trois. Ce
+que les paliers permettent dépend en outre de leur <em>agencement</em> : leur sens à
+l'intérieur d'un fichier, et les niveaux qu'ils partagent d'un fichier à l'autre.
 </p>
 
 <div class="fiche">
-<h3>balayage</h3>
+<h3>Paliers stabilisés</h3>
 <dl>
-  <dt>Données attendues</dt><dd>points stabilisés parcourus en montée <em>puis</em> en descente</dd>
+  <dt>Critère</dt><dd>l'écart-type du couple de <strong>référence</strong> reste sous la tolérance de
+      stabilité pendant au moins la durée minimale de palier. Seule la fraction finale du palier
+      est moyennée, pour écarter le transitoire d'établissement.</dd>
   <dt>Produit</dt><dd>régression, offset <em>b</em>, erreur de sensibilité <em>a</em> − 1,
-      non-linéarité, hystérésis</dd>
-  <dt>Sans montée<br>et descente</dt><dd>l'hystérésis est déclarée non calculable ; le reste est produit</dd>
+      non-linéarité — dès que le fichier couvre <strong>trois niveaux de couple distincts</strong> ;
+      en deçà, il alimente la seule répétabilité.</dd>
+  <dt>Aussi</dt><dd>ces paliers portent la température de leur zone : ce sont eux qui rendent la
+      sensibilité thermique identifiable.</dd>
 </dl>
-<p style="margin-top:.5em">C'est l'essai de référence du chapitre 10 : il donne l'offset et le gain,
-qui sont des caractéristiques du capteur et non de l'essai. Étant statique, il est
-insensible à tout défaut de synchronisation — d'où sa valeur pour trancher entre gain et
-retard.</p>
+<p style="margin-top:.5em">Ce sont les zones les plus précieuses du chapitre 10 : offset et gain
+sont des caractéristiques du capteur, pas de l'essai. Étant statiques, elles sont insensibles
+à tout défaut de synchronisation — d'où leur valeur pour trancher entre gain et retard.</p>
 </div>
 
 <div class="fiche">
-<h3>repetabilite</h3>
+<h3>Montée <em>et</em> descente, dans un même fichier</h3>
 <dl>
-  <dt>Données attendues</dt><dd>points stabilisés <strong>répétés</strong> au même couple de référence,
-      à température stabilisée</dd>
+  <dt>Critère</dt><dd>des paliers de sens opposés se rencontrent au même niveau de couple, à la
+      tolérance d'appariement près. Le sens se déduit de la variation de niveau d'un palier au
+      suivant.</dd>
+  <dt>Produit</dt><dd>l'hystérésis</dd>
+  <dt>Sans les deux sens</dt><dd>l'hystérésis est déclarée non calculable ; tout le reste est produit</dd>
+</dl>
+<p style="margin-top:.5em">C'est la seule grandeur qui se joue <em>à l'intérieur</em> d'un fichier :
+comparer une montée d'une acquisition à la descente d'une autre mélangerait l'hystérésis à la
+dérive entre les deux relevés.</p>
+</div>
+
+<div class="fiche">
+<h3>Répétitions d'un même niveau, entre fichiers</h3>
+<dl>
+  <dt>Critère</dt><dd>les paliers de <strong>toute</strong> la campagne sont regroupés par niveau de
+      couple ; un niveau atteint par au moins <strong>deux acquisitions différentes</strong>
+      constitue une répétition.</dd>
   <dt>Produit</dt><dd>dispersion du résidu à couple constant ; alimente σ0 des cartes de contrôle</dd>
-  <dt>Condition</dt><dd>il faut au moins <strong>deux</strong> paliers au même niveau de couple
-      (tolérance de regroupement réglable). Les répétitions peuvent venir de fichiers différents
-      du même dossier.</dd>
 </dl>
 <div class="garde" style="margin:.55em 0 0">
-<p>Sur un essai <strong>iso-puissance</strong>, le couple varie d'un point à l'autre en suivant
-l'inverse du régime : deux points d'un même relevé ne sont donc pas au même couple de
-référence. La répétabilité n'y est calculable que si le dossier contient plusieurs relevés
-couvrant les mêmes points de fonctionnement.</p>
+<p>Ce regroupement inter-fichiers est ce qui rend la répétabilité calculable sans rien déclarer :
+deux acquisitions passant par le même point de fonctionnement se répètent, quel qu'ait été le
+protocole. Sur un essai <strong>iso-puissance</strong>, le couple varie d'un point à l'autre en
+suivant l'inverse du régime : deux points d'un même relevé ne sont pas au même couple, et il
+faut donc plusieurs relevés couvrant les mêmes points.</p>
 </div>
 </div>
 
 <div class="fiche">
-<h3>dynamique</h3>
+<h3>Plage dynamique</h3>
 <dl>
-  <dt>Données attendues</dt><dd>cycle ou transitoire, avec de vraies variations de couple</dd>
+  <dt>Critère</dt><dd>activité continue au-dessus du seuil, les interruptions plus brèves que la
+      durée de comblement étant ignorées — un cycle passe par des extrema où la variance
+      instantanée s'annule, sans cesser d'être dynamique pour autant.</dd>
   <dt>Produit</dt><dd>recalage temporel par intercorrélation, et la conclusion qualitative</dd>
-  <dt>Condition</dt><dd>une plage réellement dynamique assez longue ; sur un signal quasi
-      stationnaire, le pic d'intercorrélation est plat et le retard n'est pas identifiable</dd>
+  <dt>Condition</dt><dd>une plage assez longue ; sur un signal quasi stationnaire, le pic
+      d'intercorrélation est plat et le retard n'est pas identifiable</dd>
 </dl>
-<p style="margin-top:.5em">C'est aussi le repli le moins risqué en cas de doute : il ne présuppose
-pas de points stabilisés, donc ne fabrique pas de paliers illusoires sur un essai qui n'en
-comporte pas.</p>
+</div>
+
+<div class="fiche">
+<h3>Plages de repos</h3>
+<dl>
+  <dt>Critère</dt><dd>couple et régime quasi nuls. Il en faut <strong>deux distinctes</strong>, l'une
+      dans la fraction initiale de l'acquisition, l'autre dans la fraction finale.</dd>
+  <dt>Produit</dt><dd>la dérive de zéro sur cycle</dd>
+</dl>
+<p style="margin-top:.5em">Une seule plage de repos couvrant tout l'essai ne constitue pas deux
+relevés : sans début <em>et</em> fin, il n'y a pas de dérive à mesurer.</p>
 </div>
 
 <figure class="pleine-page">
-  <img src="img/09_allures_essais.png" alt="Allures de couple attendues par type d'essai">
+  <img src="img/09_allures_essais.png" alt="Allures de couple attendues selon le type d'essai">
   <figcaption>Allure du couple attendue pour chaque essai — allures de principe, aucune
-    donnée mesurée. À confronter à vos acquisitions : si la forme ne correspond pas au type
-    déclaré, c'est la déclaration qu'il faut corriger.</figcaption>
+    donnée mesurée. À confronter à vos acquisitions dans l'onglet <em>Visualisation</em>, puis
+    au relevé de l'onglet <em>Zones détectées</em> : c'est ainsi qu'on vérifie que l'outil a bien
+    vu ce que l'essai contenait.</figcaption>
 </figure>
 
-<h3>Application à la campagne</h3>
+<h3>Ce que la campagne apporte, essai par essai</h3>
 <table>
-  <tr><th style="width:58mm">Dossier d'essai</th><th style="width:26mm">Type</th><th>Motif</th></tr>
-  <tr><td>1-Balayage Couple</td><td><code>balayage</code></td><td>points stabilisés croissants puis décroissants</td></tr>
-  <tr><td>2-CPC 20 °C</td><td><code>repetabilite</code></td><td>essai répété à température stabilisée</td></tr>
-  <tr><td>3-4_1000M_DA</td><td><code>dynamique</code></td><td>départ arrêté sur 1 km. Le front de couple au décollage est la sollicitation la plus franche de la campagne, donc le meilleur support d'identification du retard</td></tr>
-  <tr><td>4-iso Pwr_traction MaV_statique</td><td><code>repetabilite</code></td><td>points stabilisés à iso-puissance</td></tr>
-  <tr><td>5-Décollage en pente</td><td><code>dynamique</code></td><td>transitoire</td></tr>
-  <tr><td>6-iso Pwr_traction MaV_dynamique</td><td><code>dynamique</code></td><td>transitoire</td></tr>
-  <tr><td>7-WLTC</td><td><code>dynamique</code></td><td>cycle</td></tr>
+  <tr><th style="width:58mm">Acquisition</th><th style="width:40mm">Zones attendues</th><th>Ce qu'elle alimente</th></tr>
+  <tr><td>1-Balayage Couple</td><td>paliers, montée puis descente</td><td>régression, offset, sensibilité, non-linéarité, hystérésis</td></tr>
+  <tr><td>2-CPC 20 °C</td><td>paliers répétés d'un relevé à l'autre</td><td>régression et répétabilité</td></tr>
+  <tr><td>3-4_1000M_DA</td><td>plage dynamique franche</td><td>retard. Le front de couple au décollage est la sollicitation la plus raide de la campagne, donc le meilleur support d'identification</td></tr>
+  <tr><td>4-iso Pwr_traction MaV_statique</td><td>paliers à iso-puissance</td><td>régression, et répétabilité si plusieurs relevés couvrent les mêmes points</td></tr>
+  <tr><td>5-Décollage en pente</td><td>plage dynamique, repos aux deux bouts</td><td>retard, dérive de zéro</td></tr>
+  <tr><td>6-iso Pwr_traction MaV_dynamique</td><td>plage dynamique</td><td>retard</td></tr>
+  <tr><td>7-WLTC</td><td>plage dynamique longue, repos aux deux bouts</td><td>retard, dérive de zéro</td></tr>
 </table>
+
+<div class="note">
+<p>Ce tableau dit ce qu'on <em>attend</em> de chaque essai. L'onglet <em>Zones détectées</em> dit
+ce qui a été <em>trouvé</em>. Un écart entre les deux est une information : soit l'acquisition ne
+contient pas ce qu'on croyait, soit un seuil de détection est trop serré.</p>
+</div>
 
 <div class="astuce">
 <p><span class="etiq">Un couple d'essais à exploiter.</span> Les essais iso-puissance statique et
 dynamique parcourent les mêmes points de fonctionnement, l'un en stabilisé, l'autre en
 transitoire. Un écart présent en dynamique mais absent en statique aux mêmes points signe la
-synchronisation ; un écart présent dans les deux signe un écart de modèle. Le rapport donne
-les deux régressions côte à côte dans le détail par essai.</p>
+synchronisation ; un écart présent dans les deux signe un écart de modèle.</p>
 </div>
 </div>
 
@@ -565,7 +649,8 @@ est un indicateur complémentaire.
   <dt>Unité</dt><dd>% PE</dd>
   <dt>Définition</dt><dd>ordonnée à l'origine de la régression
       <span class="formule">couple mesuré = a × couple référence + b</span></dd>
-  <dt>Méthode</dt><dd>moindres carrés ordinaires sur les paliers stabilisés d'un essai de balayage</dd>
+  <dt>Méthode</dt><dd>moindres carrés ordinaires sur les paliers stabilisés de <strong>toutes</strong>
+      les acquisitions, mis en commun</dd>
   <dt>Lecture</dt><dd>un écart <strong>constant</strong>, indépendant du couple appliqué. Corrigeable
       par une remise à zéro avant essai.</dd>
 </dl>
@@ -747,7 +832,7 @@ confiance d'environ 95 %.
 
 <table>
   <tr><th style="width:40mm">Contribution</th><th style="width:26mm">Loi</th><th>Origine</th></tr>
-  <tr><td>Non-linéarité</td><td>rectangulaire</td><td>résidu max de la régression du balayage</td></tr>
+  <tr><td>Non-linéarité</td><td>rectangulaire</td><td>résidu max de la régression sur les paliers</td></tr>
   <tr><td>Hystérésis</td><td>rectangulaire</td><td>demi-écart montée/descente</td></tr>
   <tr><td>Répétabilité</td><td>normale (type A)</td><td>écart-type poolé mesuré</td></tr>
   <tr><td>Dérive de zéro</td><td>rectangulaire</td><td>dérive la plus forte constatée</td></tr>
@@ -836,27 +921,36 @@ traitement.
 
 <table>
   <tr><th style="width:44mm">Grandeur</th><th style="width:52mm">Motif possible</th><th>Que faire</th></tr>
-  <tr><td>Hystérésis</td><td>le balayage ne comporte pas à la fois une montée et une descente</td>
-      <td>vérifier le type déclaré ; sinon la grandeur n'existe pas pour cet essai</td></tr>
-  <tr><td>Répétabilité</td><td>aucun niveau de couple répété au moins deux fois</td>
-      <td>regrouper les relevés d'un même protocole dans un seul dossier, ou augmenter la tolérance de regroupement</td></tr>
-  <tr><td>Répétabilité après remontage</td><td>moins de deux groupes de remontage déclarés</td>
-      <td>renseigner deux étiquettes distinctes ; si aucun remontage n'a eu lieu, l'indiquer dans l'onglet Hypothèses</td></tr>
+  <tr><td>Hystérésis</td><td>aucune acquisition ne comporte à la fois une montée et une descente</td>
+      <td>vérifier la colonne <em>Montée/desc.</em> de l'onglet Zones ; si elle est vide partout, la grandeur n'existe pas dans cette campagne</td></tr>
+  <tr><td>Régression</td><td>moins de trois niveaux de couple distincts sur l'ensemble des paliers</td>
+      <td>desserrer la tolérance de stabilité ou raccourcir la durée minimale de palier : des plages stabilisées ont pu être écartées</td></tr>
+  <tr><td>Répétabilité</td><td>aucun niveau de couple atteint par au moins deux acquisitions</td>
+      <td>vérifier que les relevés répétés sont bien dans le dossier analysé, ou augmenter la tolérance d'appariement</td></tr>
+  <tr><td>Répétabilité après remontage</td><td>les groupes avant/après ne peuvent pas être devinés</td>
+      <td>déclarer les essais par dossier si la campagne comporte un remontage ; si aucun n'a eu lieu, l'indiquer dans l'onglet Hypothèses</td></tr>
   <tr><td>Retard temporel</td><td>aucune plage dynamique contiguë assez longue</td>
-      <td>abaisser le seuil d'activité, ou reconnaître que l'essai est trop stationnaire</td></tr>
+      <td>abaisser le seuil d'activité ou allonger la durée de comblement, ou reconnaître que les essais sont trop stationnaires</td></tr>
   <tr><td>Sensibilité thermique</td><td>excursion thermique insuffisante, ou canal de température absent</td>
       <td>rien à forcer : une pente non identifiable ne doit pas être extrapolée</td></tr>
-  <tr><td>Dérive de zéro</td><td>pas de relevé de repos en début <em>et</em> en fin d'essai</td>
-      <td>normal sur un essai qui ne revient pas à l'arrêt ; d'autres essais alimenteront la ligne</td></tr>
-  <tr><td>Résidu gauche − droite</td><td>essai non déclaré en ligne droite, ou une seule voie</td>
-      <td>cocher <em>ligne droite</em> si les sorties sont chargées symétriquement</td></tr>
+  <tr><td>Dérive de zéro</td><td>aucune acquisition n'a de relevé de repos en début <em>et</em> en fin</td>
+      <td>normal si aucun essai ne revient à l'arrêt ; sinon élargir la fraction de bord</td></tr>
+  <tr><td>Résidu gauche − droite</td><td>chargement non déclaré symétrique, ou une seule voie mesurée</td>
+      <td>cocher <em>Sorties du banc chargées symétriquement</em> si c'est le cas</td></tr>
 </table>
 
 <div class="astuce">
 <p>Deux situations très différentes mènent à « non calculable », et le rapport les distingue :
 une grandeur <strong>non définie</strong> (aucun remontage n'a eu lieu — il n'y a rien à mesurer)
-n'est pas une grandeur <strong>non configurée</strong> (un remontage a eu lieu mais les groupes ne
-sont pas déclarés). La nuance compte dans un document relu par des tiers.</p>
+n'est pas une grandeur <strong>non trouvée</strong> (la zone qui la porterait est absente des
+acquisitions). La nuance compte dans un document relu par des tiers.</p>
+</div>
+
+<div class="garde">
+<p><span class="etiq">Un refus se corrige par un seuil, jamais par une valeur.</span> Quand une
+grandeur manque, le bon réflexe est de regarder l'onglet <em>Zones détectées</em> pour voir
+quelle zone n'a pas été trouvée, puis d'ajuster le critère correspondant dans
+<em>Hypothèses</em> — et d'accepter le refus si la zone n'existe réellement pas.</p>
 </div>
 </div>
 

@@ -93,21 +93,38 @@ class InventaireDossier:
         return len(set(jeux)) <= 1
 
 
+NOM_RACINE = "(racine)"
+
+
 def inventorier(
     racine: Path, sous_dossiers: list[str] | None = None, n_fichiers: int = 2
 ) -> list[InventaireDossier]:
-    """Inventorie un échantillon de fichiers par sous-dossier d'essai."""
+    """Inventorie un échantillon d'acquisitions par groupe.
+
+    Un groupe est un sous-dossier d'essai — organisation par type — mais aussi
+    la **racine elle-même** lorsqu'elle contient directement des acquisitions.
+    Sans cela, un dossier plat, qui est l'organisation la plus courante, ne
+    produirait aucun inventaire et donc aucun mapping.
+    """
     racine = Path(racine)
     if not racine.is_dir():
         raise FileNotFoundError(f"Racine des données introuvable : {racine}")
-    dossiers = sous_dossiers or sorted(
-        p.name for p in racine.iterdir() if p.is_dir() and lister_fichiers(p, 1)
-    )
+
+    groupes: list[tuple[str, list[Path]]] = []
+    if sous_dossiers:
+        groupes = [(nom, lister_fichiers(racine / nom)) for nom in sous_dossiers]
+    else:
+        directs = [f for f in lister_fichiers(racine) if f.parent == racine]
+        if directs:
+            groupes.append((NOM_RACINE, directs))
+        groupes += [
+            (p.name, lister_fichiers(p))
+            for p in sorted(racine.iterdir(), key=lambda p: p.name.lower())
+            if p.is_dir() and lister_fichiers(p, 1)
+        ]
 
     resultats: list[InventaireDossier] = []
-    for nom in dossiers:
-        chemin = racine / nom
-        tous = lister_fichiers(chemin)
+    for nom, tous in groupes:
         echantillon = tous[:n_fichiers]
         canaux: dict[str, list[DescriptionCanal]] = {}
         erreurs: list[str] = []

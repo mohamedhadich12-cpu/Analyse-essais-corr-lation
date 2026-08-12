@@ -488,6 +488,61 @@ class Recalage:
         return 1.0 - self.rms_residu_apres_Nm / self.rms_residu_avant_Nm
 
 
+def plage_dynamique(
+    t: np.ndarray,
+    reference: np.ndarray,
+    pleine_echelle_Nm: float,
+    params: ParamsIntercorrelation,
+) -> tuple[int, int] | None:
+    """La plus longue plage contiguë où le signal est réellement dynamique.
+
+    Critère : écart-type glissant du couple de référence au-dessus du seuil
+    d'activité. Les interruptions courtes sont comblées — un cycle transitoire
+    passe par des extrema où la variance instantanée s'annule sans cesser
+    d'être dynamique.
+
+    Renvoie `None` si aucune plage n'atteint la durée minimale, fixée à dix
+    fois le retard maximal recherché : en deçà, le pic d'intercorrélation n'est
+    pas identifiable.
+    """
+    fe = frequence_echantillonnage(t)
+    retard_max_s = params.retard_max_ms / 1000.0
+    n_activite = max(3, int(round(params.fenetre_activite_s * fe)))
+    seuil_Nm = params.seuil_activite_pc_pe * pleine_echelle_Nm / 100.0
+
+    activite = _std_glissant(reference, n_activite)
+    actif = np.isfinite(activite) & (activite >= seuil_Nm)
+    actif = _combler_trous(actif, int(round(params.duree_comblement_s * fe)))
+    duree_min = max(int(round(10 * retard_max_s * fe)), int(round(2.0 * fe)))
+    plages = _segments(actif, duree_min)
+    if not plages:
+        return None
+    return max(plages, key=lambda p: p[1] - p[0])
+
+
+def plages_de_repos(
+    t: np.ndarray,
+    reference: np.ndarray,
+    regime: np.ndarray | None,
+    pleine_echelle_Nm: float,
+    params: ParamsZero,
+) -> list[tuple[int, int]]:
+    """Plages de repos : couple de référence et régime sous leurs seuils.
+
+    Ce sont les candidates aux relevés de zéro. La position dans l'essai n'est
+    pas jugée ici — c'est `derive_zero` qui exige d'en trouver une au début et
+    une à la fin.
+    """
+    fe = frequence_echantillonnage(t)
+    n_min = max(3, int(round(params.duree_fenetre_s * fe)))
+    seuil_Nm = params.seuil_couple_ref_pc_pe * pleine_echelle_Nm / 100.0
+
+    masque = np.abs(reference) < seuil_Nm
+    if regime is not None and params.seuil_regime is not None:
+        masque = masque & (np.abs(regime) < params.seuil_regime)
+    return _segments(masque, n_min)
+
+
 def appliquer_retard(t: np.ndarray, y: np.ndarray, retard_s: float) -> np.ndarray:
     """Avance le signal `y` de `retard_s` secondes (compense un retard positif).
 
@@ -536,14 +591,9 @@ def recalage_temporel(
     retard_max_s = params.retard_max_ms / 1000.0
 
     # Hypothèse 1 : sélection de la plage dynamique la plus longue.
-    n_activite = max(3, int(round(params.fenetre_activite_s * fe)))
-    seuil_Nm = params.seuil_activite_pc_pe * pleine_echelle_Nm / 100.0
-    activite = _std_glissant(reference, n_activite)
-    actif = np.isfinite(activite) & (activite >= seuil_Nm)
-    actif = _combler_trous(actif, int(round(params.duree_comblement_s * fe)))
     duree_min_points = max(int(round(10 * retard_max_s * fe)), int(round(2.0 * fe)))
-    plages = _segments(actif, duree_min_points)
-    if not plages:
+    plage = plage_dynamique(t, reference, pleine_echelle_Nm, params)
+    if plage is None:
         return Recalage(
             non_calculable=(
                 "recalage non calculable : aucune plage dynamique contiguë d'au moins "
@@ -551,7 +601,7 @@ def recalage_temporel(
                 f"supérieur à {params.seuil_activite_pc_pe} % PE"
             )
         )
-    i0, i1 = max(plages, key=lambda p: p[1] - p[0])
+    i0, i1 = plage
     tr = slice(i0, i1)
     x, y = reference[tr].copy(), mesure[tr].copy()
 
@@ -846,15 +896,7 @@ def derive_zero(
         déclarée non calculable.
     """
     t = np.asarray(t, dtype=float)
-    fe = frequence_echantillonnage(t)
-    n_min = max(3, int(round(params.duree_fenetre_s * fe)))
-    seuil_Nm = params.seuil_couple_ref_pc_pe * pleine_echelle_Nm / 100.0
-
-    masque = np.abs(reference) < seuil_Nm
-    if regime is not None and params.seuil_regime is not None:
-        masque &= np.abs(regime) < params.seuil_regime
-
-    plages = _segments(masque, n_min)
+    plages = plages_de_repos(t, reference, regime, pleine_echelle_Nm, params)
     if len(plages) < 2:
         return DeriveZero(
             non_calculable=(

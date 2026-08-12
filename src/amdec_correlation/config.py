@@ -261,6 +261,11 @@ class Config:
     essais: tuple[DeclarationEssai, ...]
     _canaux_defaut: dict[str, Any]
     _canaux_par_dossier: dict[str, dict[str, Any]]
+    # Les deux sorties du banc sont-elles chargées symétriquement sur TOUTE la
+    # campagne ? C'est la condition pour que le résidu gauche − droite soit un
+    # indicateur métrologique. En organisation automatique il n'y a plus d'essai
+    # à déclarer un par un : la propriété devient globale.
+    ligne_droite: bool = False
     paliers: ParamsPaliers = field(default_factory=ParamsPaliers)
     intercorrelation: ParamsIntercorrelation = field(default_factory=ParamsIntercorrelation)
     zero: ParamsZero = field(default_factory=ParamsZero)
@@ -268,6 +273,11 @@ class Config:
     diagnostic: ParamsDiagnostic = field(default_factory=ParamsDiagnostic)
 
     # -- accès ----------------------------------------------------------
+    @property
+    def organisation_automatique(self) -> bool:
+        """Vrai lorsqu'aucun essai n'est déclaré : les zones sont découvertes."""
+        return not self.essais
+
     def canaux_pour(self, dossier: str) -> MappingCanaux:
         """Mapping effectif d'un sous-dossier : défaut surchargé par dossier."""
         fusion = dict(self._canaux_defaut)
@@ -332,7 +342,7 @@ class Config:
             raise ErreurConfig("canaux.par_dossier doit être un dictionnaire dossier -> mapping.")
         par_dossier = {k: (v or {}) for k, v in par_dossier.items()}
 
-        essais_bruts = requis("essais")
+        essais_bruts = brut.get("essais") or {}
         if not isinstance(essais_bruts, dict):
             raise ErreurConfig("essais doit être un dictionnaire dossier -> {type: ...}.")
         essais = []
@@ -374,6 +384,7 @@ class Config:
             incertitude_reference_k1_Nm=None if u_ref is None else float(u_ref),
             frequence_Hz=frequence,
             remontage_realise=None if realise is None else bool(realise),
+            ligne_droite=bool(brut.get("ligne_droite", False)),
             essais=tuple(essais),
             _canaux_defaut=dict(defaut),
             _canaux_par_dossier=par_dossier,

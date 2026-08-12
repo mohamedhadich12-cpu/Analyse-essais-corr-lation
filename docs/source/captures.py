@@ -26,6 +26,7 @@ Prérequis : `python -m pip install playwright && python -m playwright install c
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -33,11 +34,15 @@ from playwright.sync_api import sync_playwright
 RACINE = Path(__file__).resolve().parents[2]
 IMAGES = Path(__file__).resolve().parent / "img"
 
+# Chromium déjà installé ailleurs que dans le cache Playwright : renseigner
+# CHROMIUM_EXECUTABLE plutôt que relancer `playwright install`.
+CHROMIUM = os.environ.get("CHROMIUM_EXECUTABLE") or None
+
 
 def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as pilote:
-        navigateur = pilote.chromium.launch()
+        navigateur = pilote.chromium.launch(executable_path=CHROMIUM)
         # Facteur 2 : les captures restent nettes une fois réduites dans le PDF.
         page = navigateur.new_page(
             viewport={"width": 1440, "height": 1000}, device_scale_factor=2
@@ -65,7 +70,13 @@ def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
         zone.screenshot(path=str(IMAGES / "01_exploration.png"))
 
         onglet("3 · Canaux", 3500); zone.screenshot(path=str(IMAGES / "02_canaux.png"))
-        onglet("4 · Essais");       zone.screenshot(path=str(IMAGES / "03_essais.png"))
+
+        # La détection lit toutes les acquisitions : c'est la capture la plus lente.
+        onglet("4 · Zones détectées")
+        page.get_by_role("button", name="Détecter les zones").click()
+        page.wait_for_timeout(25_000)
+        zone.screenshot(path=str(IMAGES / "03_zones.png"))
+
         onglet("5 · Hypothèses");   zone.screenshot(path=str(IMAGES / "04_hypotheses.png"))
 
         onglet("2 · Visualisation", 5000)
@@ -79,7 +90,7 @@ def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
         navigateur.close()
 
     # Une vraie figure d'analyse vaut mieux qu'une capture de l'onglet Figures.
-    figure = dossier_sortie / "figures" / "1_balayage_couple_regression.png"
+    figure = dossier_sortie / "figures" / "regression_paliers.png"
     if figure.is_file():
         (IMAGES / "08_figure_exemple.png").write_bytes(figure.read_bytes())
     print(f"Captures écrites dans {IMAGES}")

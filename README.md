@@ -8,6 +8,12 @@ Formats d'acquisition lus : **`.mf4`, `.mdf`** et **`.aif`** (exports ETAS INCA,
 qui sont des conteneurs MDF sous une extension propre à l'outil). L'appartenance
 au format est vérifiée sur le **contenu** du fichier, jamais sur son nom.
 
+On lui donne **un dossier d'acquisitions**, sans classement ni déclaration de type :
+il examine chaque fichier pour ce qu'il contient réellement — paliers stabilisés,
+plage dynamique, relevés de zéro — et calcule chaque grandeur à partir des zones qui
+la concernent, tous fichiers confondus (voir
+[Comment les zones sont trouvées](#comment-les-zones-sont-trouvées)).
+
 Il compare le couple mesuré par les transmissions instrumentées (télémétrie
 Manner PCM16) au couple de référence mesuré sur banc GMP, et produit :
 
@@ -33,8 +39,9 @@ d'incertitude, les cartes de contrôle et un glossaire. À lire avant la premiè
 utilisation.
 
 **[`docs/allures_couple_par_essai.png`](docs/allures_couple_par_essai.png)** — la forme
-que doit avoir le couple pour chaque essai, pour vérifier d'un coup d'œil que le type
-déclaré correspond au contenu réel des fichiers.
+que doit avoir le couple pour chaque essai, pour reconnaître d'un coup d'œil ce que
+contient une acquisition et confronter cette lecture au relevé de l'onglet
+« Zones détectées ».
 
 Pour le régénérer après une évolution de l'interface : `python docs/source/captures.py`
 puis `python docs/construire_guide.py` (voir l'entête de chaque script).
@@ -84,8 +91,8 @@ suivent le déroulé de l'analyse :
 | **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
 | **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux, combinaison de deux d'entre eux (somme ou différence) et resserrement de la plage de temps. Les courbes sont groupées **par unité**, un panneau par unité |
 | **3 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
-| **4 · Essais** | type d'essai, ligne droite, groupe de remontage |
-| **5 · Hypothèses** | toutes les bornes de traitement, et les deux saisies utilisateur |
+| **4 · Zones détectées** | montre, acquisition par acquisition, ce qui a été trouvé et ce que chacune alimente. **Rien à déclarer** : c'est un relevé à vérifier, pas une saisie. Automatique ne veut pas dire opaque — si un fichier n'alimente pas ce qu'on en attendait, les seuils se règlent à l'onglet suivant |
+| **5 · Hypothèses** | toutes les bornes de traitement (ce sont elles qui décident de la détection des zones), et les deux saisies utilisateur |
 | **6 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
 
 L'interface **ne contient aucun traitement** : elle assemble une configuration,
@@ -104,7 +111,7 @@ chemins de calcul.
 ### Étape 1 — inventorier les canaux
 
 ```bash
-python scripts/01_inventaire.py --racine "C:/Users/SD17365/Documents"
+python scripts/01_inventaire.py --racine "C:/user/SD17365/Documents"
 ```
 
 Écrit dans `sortie/inventaire/` :
@@ -133,9 +140,8 @@ Puis renseigner, en s'appuyant sur le rapport d'inventaire, tout ce qui est marq
 |---|---|
 | `canaux:` | les libellés réels diffèrent d'une campagne à l'autre. La référence banc se déclare sur **deux voies** (`couple_reference_gauche` / `_droite`) ; `couple_reference` n'est qu'un repli si le banc n'en fournit qu'une |
 | `comparaison.mode` | s'applique **de la même façon** aux voies mesurées et aux voies de référence : en `moyenne`, (G+D)/2 mesuré est confronté à (G+D)/2 de référence |
-| `essais.<dossier>.type` | `balayage`, `repetabilite` ou `dynamique` — détermine le traitement |
-| `essais.<dossier>.ligne_droite` | conditionne l'exploitation du résidu gauche − droite : hors ligne droite, cet écart est physique et non métrologique |
-| `remontage.realise` / `essais.<dossier>.groupe_remontage` | il faut **deux** étiquettes distinctes pour que la répétabilité après remontage existe. `remontage.realise: false` déclare qu'aucune dépose/repose n'a eu lieu : le rapport motive alors la non-calculabilité par « grandeur non définie » et non par « clé non configurée » |
+| `ligne_droite` | conditionne l'exploitation du résidu gauche − droite : hors ligne droite, cet écart est physique et non métrologique. Aucun traitement du signal ne peut établir si le banc chargeait symétriquement |
+| `remontage.realise` | il faut **deux** groupes de remontage distincts pour que la répétabilité après remontage existe. `remontage.realise: false` déclare qu'aucune dépose/repose n'a eu lieu : le rapport motive alors la non-calculabilité par « grandeur non définie » et non par « clé non configurée » |
 | `comparaison.incertitude_reference_k1_Nm` | vient du certificat d'étalonnage du banc, pas des acquisitions |
 | `thermique.plage_service_C` | plage de température en service, pour convertir la sensibilité thermique en contribution d'incertitude |
 
@@ -149,6 +155,39 @@ python scripts/02_analyse.py --config config/correlation.yaml
 ```
 
 Écrit `sortie/chapitre10_correlation.md` et `sortie/figures/*.png`.
+
+## Comment les zones sont trouvées
+
+**On ne classe pas les fichiers, on extrait leurs zones.** Aucun type d'essai n'est
+à déclarer : chaque acquisition est parcourue, et ce qui s'y trouve détermine ce
+qu'elle alimente.
+
+| Zone repérée | Critère | Ce qu'elle alimente |
+|---|---|---|
+| **Palier stabilisé** | l'écart-type du couple de **référence** reste sous `paliers.tolerance_stab_pc_pe` pendant au moins `paliers.duree_palier_s` | régression (offset, sensibilité, non-linéarité) dès **3 niveaux distincts** dans le fichier ; sinon répétabilité seule |
+| **Montée _et_ descente** dans le même fichier | des paliers de sens opposés existent au même niveau, à `tolerance_appariement_pc_pe` près | hystérésis |
+| **Même niveau atteint par ≥ 2 fichiers** | regroupement des paliers de **toute** la campagne par niveau de couple | répétabilité — deux acquisitions passant par le même point de fonctionnement constituent une répétition, quel qu'ait été le protocole |
+| **Plage dynamique** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées | retard temporel par intercorrélation |
+| **Plages de repos** | couple et régime quasi nuls ; il en faut **deux distinctes**, l'une dans les premiers `zero.fraction_bord` de l'essai, l'autre dans les derniers | dérive de zéro sur cycle |
+
+Un même fichier peut contenir les trois familles de zones, et c'est fréquent : un
+cycle qui débute et s'achève à l'arrêt fournit ses zéros, sa plage dynamique et
+parfois quelques paliers. Extraire les zones plutôt qu'étiqueter le fichier exploite
+tout ce qui est présent, au lieu du seul aspect que l'étiquette aurait retenu.
+
+Deux choses restent à déclarer, parce qu'aucun traitement du signal ne peut les
+établir : la **symétrie de chargement** du banc (`ligne_droite`) et l'existence d'un
+**démontage/remontage** (`remontage.realise`).
+
+L'onglet **4 · Zones détectées** restitue le relevé fichier par fichier — durée,
+nombre de paliers, niveaux distincts, montée/descente, durée dynamique, zéros — et
+signale les acquisitions qui n'alimentent rien. C'est ce relevé qu'on vérifie avant
+de lire les résultats.
+
+> Le bloc `essais:` de la configuration reste accepté : le renseigner impose un type
+> à chaque dossier et bascule l'outil en **mode déclaré**, où seul le traitement
+> correspondant est appliqué. Les deux modes partagent les mêmes calculs et
+> produisent le même rapport.
 
 ## Ce qui est calculé, et sous quelles hypothèses
 
@@ -202,12 +241,14 @@ scripts/02_analyse.py             étapes 2-3 : traitements, rapport, figures
 scripts/03_interface.py           lance l'interface graphique locale
 src/amdec_correlation/
   config.py       chargement et validation ; toutes les hypothèses de traitement
+  lecteurs.py     aiguillage par format (.mf4/.mdf/.aif), détection des doublons
   io_mdf.py       lecture seule MDF4, rééchantillonnage sur base de temps commune
   inventaire.py   étape 1
+  zones.py        découverte des zones exploitables dans chaque acquisition
   metriques.py    régression, paliers, hystérésis, recalage, thermique, zéro, incertitude, SPC
   graphiques.py   figures PNG (charte : une couleur = une entité, marques fines)
   rapport.py      rédaction du Markdown
-  analyse.py      orchestration par type d'essai
+  analyse.py      orchestration : mode automatique (zones) ou déclaré (types)
   interface/
     app.py        page Streamlit (affichage uniquement)
     etat.py       assemblage de la configuration, sans dépendance à Streamlit
@@ -215,6 +256,7 @@ tests/
   generer_mf4_synthetique.py  arborescence synthétique à vérité connue
   test_metriques.py           validation des formules
   test_bout_en_bout.py        validation du pipeline complet
+  test_automatique.py         un dossier plat, aucun type déclaré : mêmes défauts retrouvés
   test_interface.py           logique de l'interface, sans lancer Streamlit
 ```
 

@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from . import graphiques, metriques as M
+from . import zones as Z
 from .config import Config, DeclarationEssai
 from .io_mdf import ErreurChargement, SignauxEssai, resumer_etats
 from .lecteurs import charger_signaux, doublons_de_format, lister_fichiers
@@ -195,16 +196,33 @@ class ResultatEssai:
 class ResultatCampagne:
     config: Config
     essais: list[ResultatEssai] = field(default_factory=list)
+    # Résultats consolidés, quel que soit le mode d'organisation. Le rapport ne
+    # lit qu'eux : il n'a pas à savoir si les essais ont été déclarés par
+    # l'utilisateur ou si leurs zones ont été découvertes automatiquement.
+    mode: str = "declare"
+    zones: list = field(default_factory=list, repr=False)
+    regression_globale: M.Regression | None = None
+    source_regression: str = ""
+    hysteresis_globale: M.Hysteresis | None = None
+    non_linearite_pc_pe: float = float("nan")
+    repetabilite_globale: M.Repetabilite | None = None
+    recalages_globaux: list[tuple[Path, M.Recalage]] = field(default_factory=list, repr=False)
+    derives_zero_globales: list[tuple[str, M.DeriveZero]] = field(default_factory=list, repr=False)
     thermique_globale: M.SensibiliteThermique | None = None
     spc: M.ParametresSPC | None = None
     repetabilite_remontage: M.Repetabilite | None = None
     motif_remontage: str | None = None
+    redondance: M.RedondanceGD | None = None
     incertitude: M.BilanIncertitude | None = None
     avertissements: list[str] = field(default_factory=list)
     figures: list[Path] = field(default_factory=list)
 
     def par_type(self, type_essai: str) -> list[ResultatEssai]:
         return [e for e in self.essais if e.declaration.type == type_essai]
+
+    @property
+    def retards_ms(self) -> list[float]:
+        return [r.retard_ms for _, r in self.recalages_globaux if not r.non_calculable]
 
     def essai(self, dossier: str) -> ResultatEssai | None:
         return next((e for e in self.essais if e.nom == dossier), None)
@@ -617,8 +635,8 @@ def _diagnostics(campagne: ResultatCampagne, cfg: Config) -> None:
         )
 
 
-def analyser(cfg: Config) -> ResultatCampagne:
-    """Exécute la campagne complète et renvoie tous les résultats."""
+def analyser_declare(cfg: Config) -> ResultatCampagne:
+    """Exécute la campagne à partir des essais DÉCLARÉS en configuration."""
     dossier_figures = cfg.dossier_sortie / "figures"
     dossier_figures.mkdir(parents=True, exist_ok=True)
 
@@ -685,4 +703,347 @@ def analyser(cfg: Config) -> ResultatCampagne:
     campagne.repetabilite_remontage, campagne.motif_remontage = _repetabilite_remontage(campagne, cfg)
     _diagnostics(campagne, cfg)
     campagne.incertitude = _incertitude(campagne, cfg)
+    _consolider_depuis_essais(campagne, cfg)
     return campagne
+
+
+# ---------------------------------------------------------------------------
+# Mode automatique : un dossier d'acquisitions, sans déclaration de types
+# ---------------------------------------------------------------------------
+
+
+def _consolider_depuis_essais(campagne: ResultatCampagne, cfg: Config) -> None:
+    """Remonte au niveau campagne les résultats des essais déclarés.
+
+    Le rapport ne lit que les champs consolidés : il n'a pas à savoir comment la
+    campagne a été organisée.
+    """
+    balayages = campagne.par_type("balayage")
+    essai = next((e for e in balayages if e.regression and not e.regression.non_calculable), None)
+    if essai:
+        campagne.regression_globale = essai.regression
+        campagne.source_regression = f"essai « {essai.nom} »"
+        campagne.non_linearite_pc_pe = essai.non_linearite_pc_pe
+    elif balayages:
+        campagne.regression_globale = balayages[0].regression
+    campagne.hysteresis_globale = next(
+        (e.hysteresis for e in balayages if e.hysteresis and not e.hysteresis.non_calculable),
+        balayages[0].hysteresis if balayages else None,
+    )
+    campagne.repetabilite_globale = next(
+        (e.repetabilite for e in campagne.par_type("repetabilite")
+         if e.repetabilite and not e.repetabilite.non_calculable),
+        None,
+    )
+    campagne.recalages_globaux = [
+        (Path(e.nom), e.recalage_principal)
+        for e in campagne.par_type("dynamique")
+        if e.recalage_principal is not None
+    ]
+    campagne.redondance = next(
+        (e.redondance for e in campagne.essais
+         if e.redondance and not e.redondance.non_calculable),
+        None,
+    )
+    campagne.derives_zero_globales = [
+        (e.nom, d) for e in campagne.essais for d in e.derives_zero_valides
+    ]
+
+
+def analyser_automatique(cfg: Config) -> ResultatCampagne:
+    """Analyse un dossier d'acquisitions **sans déclaration de types d'essai**.
+
+    Tous les fichiers exploitables sous la racine sont lus, quelle que soit leur
+    place dans l'arborescence. Chacun est examiné pour les zones qu'il contient
+    (cf. `zones`), et chaque grandeur est calculée à partir de la mise en commun
+    des zones qui la concernent :
+
+      * **régression, non-linéarité** : tous les paliers de tous les fichiers ;
+      * **hystérésis** : les fichiers qui présentent montée ET descente ;
+      * **répétabilité** : les niveaux de couple atteints par au moins deux
+        fichiers différents ;
+      * **retard** : les fichiers présentant une plage dynamique identifiable ;
+      * **dérive de zéro** : les fichiers ayant un repos au début et à la fin ;
+      * **thermique** : tous les échantillons disposant d'une température.
+
+    Ce que la détection ne peut pas deviner reste déclaratif : la symétrie de
+    chargement du banc, et l'existence d'un démontage/remontage.
+    """
+    dossier_figures = cfg.dossier_sortie / "figures"
+    dossier_figures.mkdir(parents=True, exist_ok=True)
+
+    campagne = ResultatCampagne(
+        config=cfg, mode="automatique",
+        avertissements=cfg.verifier_saisies(),
+    )
+    mapping = cfg.canaux_pour("")
+    if not mapping.a_reference or not mapping.voies_couple_mesure:
+        campagne.avertissements.append(
+            "Mapping incomplet : sans voie de couple mesuré ET de couple de référence, "
+            "aucune grandeur n'est calculable."
+        )
+        return campagne
+
+    fichiers = lister_fichiers(cfg.racine)
+    if not fichiers:
+        campagne.avertissements.append(f"Aucune acquisition exploitable sous {cfg.racine}.")
+        return campagne
+    for racine_commune, doublons in doublons_de_format(fichiers).items():
+        campagne.avertissements.append(
+            f"L'acquisition « {racine_commune} » est présente sous {len(doublons)} formats "
+            f"({', '.join(f.suffix for f in doublons)}) : elle compterait double. "
+            "Ne conservez qu'un format par acquisition."
+        )
+
+    T_pool, res_pool, couple_pool = [], [], []
+    paliers_tous: list[M.Palier] = []
+    donnees_figure = None
+    meilleur_pic = -np.inf
+
+    for fichier in fichiers:
+        try:
+            donnees = preparer(fichier, cfg, mapping)
+        except Exception as exc:
+            campagne.zones.append(Z.ZonesFichier(chemin=fichier, duree_s=0.0, erreur=str(exc)))
+            continue
+
+        zones = Z.detecter(donnees, cfg)
+        campagne.zones.append(zones)
+        paliers_tous.extend(zones.paliers)
+
+        residu_thermique = donnees.residu
+        if zones.alimente_retard:
+            recal = M.recalage_temporel(
+                donnees.t, donnees.reference, donnees.mesure,
+                cfg.pleine_echelle_Nm, cfg.intercorrelation,
+            )
+            campagne.recalages_globaux.append((fichier, recal))
+            if not recal.non_calculable:
+                residu_thermique = (
+                    M.appliquer_retard(donnees.t, donnees.mesure, recal.retard_ms / 1000.0)
+                    - donnees.reference
+                )
+                if recal.correlation_pic > meilleur_pic:
+                    meilleur_pic, donnees_figure = recal.correlation_pic, (donnees, recal)
+
+        if zones.alimente_derive_zero:
+            derive = M.derive_zero(
+                donnees.t, donnees.mesure, donnees.reference, donnees.regime,
+                cfg.pleine_echelle_Nm, cfg.zero,
+            )
+            if not derive.non_calculable:
+                campagne.derives_zero_globales.append((fichier.name, derive))
+
+        if donnees.temperature is not None:
+            pas = max(1, int(round(cfg.frequence_Hz / FREQUENCE_THERMIQUE_Hz)))
+            T_pool.append(donnees.temperature[::pas])
+            res_pool.append(residu_thermique[::pas])
+            couple_pool.append(donnees.reference[::pas])
+
+        if cfg.ligne_droite and campagne.redondance is None:
+            campagne.redondance = M.redondance_gauche_droite(
+                donnees.gauche, donnees.droite, cfg.pleine_echelle_Nm
+            )
+            if not campagne.redondance.non_calculable:
+                campagne.figures.append(
+                    graphiques.figure_redondance(
+                        donnees.t, donnees.gauche, donnees.droite, cfg.pleine_echelle_Nm,
+                        dossier_figures / "redondance_gd.png",
+                        titre=f"{fichier.name} — redondance des voies (gauche − droite)",
+                    )
+                )
+
+    # -- grandeurs issues des paliers, tous fichiers confondus --------------
+    if paliers_tous:
+        campagne.regression_globale = M.regression(
+            [p.reference for p in paliers_tous], [p.mesure for p in paliers_tous]
+        )
+        campagne.source_regression = (
+            f"{len(paliers_tous)} paliers de "
+            f"{len({p.source for p in paliers_tous})} acquisition(s)"
+        )
+        campagne.non_linearite_pc_pe = M.non_linearite_pc_pe(
+            campagne.regression_globale, cfg.pleine_echelle_Nm
+        )
+        campagne.figures.append(
+            graphiques.figure_regression_balayage(
+                paliers_tous, campagne.regression_globale,
+                M.hysteresis(paliers_tous, cfg.pleine_echelle_Nm, cfg.paliers),
+                cfg.pleine_echelle_Nm, dossier_figures / "regression_paliers.png",
+                titre="Paliers stabilisés — corrélation transmissions / banc GMP",
+            )
+        )
+
+    # L'hystérésis n'a de sens qu'au sein d'UN fichier : apparier une montée
+    # d'une acquisition à une descente d'une autre confondrait l'hystérésis avec
+    # la dispersion entre essais.
+    hysteresis_par_fichier = [
+        M.hysteresis(z.paliers, cfg.pleine_echelle_Nm, cfg.paliers)
+        for z in campagne.zones if z.alimente_hysteresis
+    ]
+    valides = [h for h in hysteresis_par_fichier if not h.non_calculable]
+    if valides:
+        campagne.hysteresis_globale = max(valides, key=lambda h: h.max_pc_pe)
+    elif hysteresis_par_fichier:
+        campagne.hysteresis_globale = hysteresis_par_fichier[0]
+    else:
+        campagne.hysteresis_globale = M.Hysteresis(
+            non_calculable="hystérésis non calculable : aucune acquisition ne présente à la "
+            "fois des paliers en montée et en descente"
+        )
+
+    # -- répétabilité : niveaux atteints par plusieurs fichiers -------------
+    repetes = Z.niveaux_repetes(campagne.zones, cfg)
+    paliers_repetes = [p for groupe in repetes.values() for p in groupe]
+    if paliers_repetes:
+        campagne.repetabilite_globale = M.repetabilite(
+            paliers_repetes, cfg.pleine_echelle_Nm, cfg.paliers
+        )
+        campagne.figures.append(
+            graphiques.figure_repetabilite(
+                campagne.repetabilite_globale, cfg.pleine_echelle_Nm,
+                dossier_figures / "repetabilite.png",
+                titre="Répétabilité — niveaux atteints par plusieurs acquisitions",
+            )
+        )
+    else:
+        campagne.repetabilite_globale = M.Repetabilite(
+            non_calculable="répétabilité non calculable : aucun niveau de couple n'est atteint "
+            "par au moins deux acquisitions différentes"
+        )
+
+    # -- recalage : figure sur l'acquisition au pic le plus marqué ----------
+    if donnees_figure is not None:
+        donnees, recal = donnees_figure
+        campagne.figures.append(
+            graphiques.figure_recalage(
+                donnees.t, donnees.reference, donnees.mesure, recal,
+                dossier_figures / "recalage.png", titre=donnees.chemin.name,
+            )
+        )
+
+    # -- thermique ----------------------------------------------------------
+    if T_pool:
+        campagne.thermique_globale = M.sensibilite_thermique(
+            np.concatenate(T_pool), np.concatenate(res_pool),
+            cfg.pleine_echelle_Nm, cfg.thermique, couple=np.concatenate(couple_pool),
+        )
+        campagne.figures.append(
+            graphiques.figure_residu_temperature(
+                campagne.thermique_globale, cfg.pleine_echelle_Nm,
+                dossier_figures / "residu_vs_temperature.png",
+                titre="Campagne complète — résidu (mesuré − référence) vs température",
+            )
+        )
+    else:
+        campagne.thermique_globale = M.SensibiliteThermique(
+            non_calculable="sensibilité thermique non calculable : aucun canal de température "
+            "mappé"
+        )
+
+    # -- cartes de contrôle -------------------------------------------------
+    campagne.spc = _spc_automatique(campagne, cfg, repetes)
+    campagne.repetabilite_remontage = None
+    campagne.motif_remontage = (
+        "répétabilité après remontage non calculable : aucun démontage ni remontage de la "
+        "chaîne de mesure n'a été réalisé au cours de la campagne. La grandeur n'est pas "
+        "définie ici — elle n'est pas manquante"
+        if cfg.remontage_realise is False
+        else "répétabilité après remontage non calculable : en organisation automatique, "
+        "les groupes avant/après remontage ne peuvent pas être devinés — déclarez-les en "
+        "mode par dossier si la campagne en comporte"
+    )
+    campagne.incertitude = _incertitude_globale(campagne, cfg)
+    return campagne
+
+
+def _spc_automatique(campagne: ResultatCampagne, cfg: Config, repetes: dict) -> M.ParametresSPC:
+    """μ0 et σ0 depuis les niveaux réellement répétés entre acquisitions."""
+    if not repetes:
+        return M.ParametresSPC(
+            non_calculable="paramètres SPC non calculables : aucun niveau de couple n'est "
+            "atteint par au moins deux acquisitions"
+        )
+    tous = [p for groupe in repetes.values() for p in groupe]
+    moyenne_globale = float(np.mean([p.residu for p in tous]))
+    centres = [
+        100.0 * (p.residu - float(np.mean([q.residu for q in groupe])) + moyenne_globale)
+        / cfg.pleine_echelle_Nm
+        for groupe in repetes.values()
+        for p in groupe
+    ]
+    rep = campagne.repetabilite_globale
+    sigma0 = rep.ecart_type_pc_pe if rep and not rep.non_calculable else None
+    ddl = rep.degres_liberte if rep and not rep.non_calculable else 0
+    return M.parametres_spc(centres, ddl=ddl, sigma0_pc_pe=sigma0)
+
+
+def _incertitude_globale(campagne: ResultatCampagne, cfg: Config) -> M.BilanIncertitude:
+    """Bilan d'incertitude bâti sur les grandeurs consolidées."""
+    contributions: list[M.Contribution] = []
+    exclusions: list[str] = []
+
+    if math.isfinite(campagne.non_linearite_pc_pe):
+        contributions.append(M.Contribution(
+            "Non-linéarité", cfg.nm(campagne.non_linearite_pc_pe), "rectangulaire",
+            f"résidu max de la régression sur {campagne.source_regression}"))
+    else:
+        exclusions.append("non-linéarité (aucune régression exploitable)")
+
+    hyst = campagne.hysteresis_globale
+    if hyst and not hyst.non_calculable:
+        contributions.append(M.Contribution(
+            "Hystérésis", cfg.nm(hyst.max_pc_pe) / 2.0, "rectangulaire",
+            "demi-écart montée/descente"))
+    else:
+        exclusions.append("hystérésis (aucun appariement montée/descente)")
+
+    rep = campagne.repetabilite_globale
+    if rep and not rep.non_calculable:
+        contributions.append(M.Contribution(
+            "Répétabilité", rep.ecart_type_Nm, "normale",
+            f"écart-type poolé, {rep.degres_liberte} ddl"))
+    else:
+        exclusions.append("répétabilité (aucun niveau répété)")
+
+    derives = [d.derive_pc_pe for _, d in campagne.derives_zero_globales]
+    if derives:
+        contributions.append(M.Contribution(
+            "Dérive de zéro", cfg.nm(max(derives, key=abs)), "rectangulaire",
+            f"dérive la plus forte sur {len(derives)} acquisition(s)"))
+    else:
+        exclusions.append("dérive de zéro (aucun relevé de zéro avant/après identifiable)")
+
+    th = campagne.thermique_globale
+    if th and not th.non_calculable and cfg.thermique.plage_service_C:
+        contributions.append(M.Contribution(
+            "Effet thermique",
+            abs(th.pente_Nm_par_C) * cfg.thermique.plage_service_C / 2.0, "rectangulaire",
+            f"sur une plage de service de {cfg.thermique.plage_service_C:.0f} °C"))
+    elif th and not th.non_calculable:
+        exclusions.append("effet thermique (`thermique.plage_service_C` non renseignée)")
+    else:
+        exclusions.append("effet thermique (sensibilité thermique non calculable)")
+
+    if cfg.incertitude_reference_k1_Nm is not None:
+        contributions.append(M.Contribution(
+            "Référence banc GMP", cfg.incertitude_reference_k1_Nm, "normale",
+            "incertitude-type du moyen de référence, fournie en configuration"))
+    else:
+        exclusions.append(
+            "incertitude du moyen de référence (`comparaison.incertitude_reference_k1_Nm` "
+            "non renseignée : elle ne peut pas être déduite des acquisitions)")
+
+    return M.bilan_incertitude(contributions, exclusions, cfg.pleine_echelle_Nm)
+
+
+def analyser(cfg: Config) -> ResultatCampagne:
+    """Point d'entrée unique : choisit l'organisation d'après la configuration.
+
+    Sans essai déclaré, les acquisitions sont parcourues à plat et leurs zones
+    découvertes automatiquement. Avec des essais déclarés, chaque dossier reçoit
+    le traitement de son type — plus précis lorsqu'on connaît le protocole.
+    """
+    if cfg.organisation_automatique:
+        return analyser_automatique(cfg)
+    return analyser_declare(cfg)

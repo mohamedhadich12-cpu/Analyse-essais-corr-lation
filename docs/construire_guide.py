@@ -28,6 +28,12 @@ HTML = SOURCE / "guide.html"
 IMAGES = SOURCE / "img"
 SORTIE = Path(__file__).resolve().parent / "Guide_correlation_couple_banc_GMP.pdf"
 
+# La planche des allures est aussi publiée seule à la racine de `docs/` ; elle est
+# recopiée ici à chaque construction pour que le guide ne puisse pas en montrer
+# une version périmée. Régénérer la planche : `python docs/source/allures_essais.py`.
+PLANCHE = Path(__file__).resolve().parent / "allures_couple_par_essai.png"
+PLANCHE_GUIDE = IMAGES / "09_allures_essais.png"
+
 PIED = (
     '<div style="width:100%;font-family:sans-serif;font-size:7.5pt;color:#898781;'
     'padding:0 15mm;display:flex;justify-content:space-between;">'
@@ -111,6 +117,8 @@ def main() -> int:
     if not HTML.is_file():
         print(f"Source introuvable : {HTML}", file=sys.stderr)
         return 2
+    if PLANCHE.is_file():
+        PLANCHE_GUIDE.write_bytes(PLANCHE.read_bytes())
     for image in sorted(IMAGES.glob("*.png")):
         detourer(image)
     autonome = SOURCE / "guide_autonome.html"

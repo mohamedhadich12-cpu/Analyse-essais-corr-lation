@@ -34,6 +34,7 @@ from amdec_correlation import graphiques  # noqa: E402
 from amdec_correlation import inventaire as I  # noqa: E402
 from amdec_correlation import lecteurs  # noqa: E402
 from amdec_correlation import rapport as R  # noqa: E402
+from amdec_correlation import zones as Zn  # noqa: E402
 from amdec_correlation.config import MODES_COMPARAISON  # noqa: E402
 from amdec_correlation.interface import etat as E  # noqa: E402
 
@@ -82,7 +83,7 @@ DEFAUTS: dict[str, object] = {
     "n_fichiers": 2, "mapping_commun": True,
     "u_ref_connue": False, "u_ref": 2.0,
     "plage_connue": False, "plage": 40.0,
-    "remontage": "Non précisé",
+    "remontage": "Non précisé", "ligne_droite": False,
     "p::duree_palier_s": 2.0, "p::tolerance_stab_pc_pe": 0.5,
     "p::fraction_finale": 0.5, "p::ecart_min_paliers_pc_pe": 1.0,
     "p::tolerance_appariement_pc_pe": 1.0,
@@ -102,8 +103,8 @@ for _cle, _valeur in DEFAUTS.items():
 st.session_state.setdefault("inventaire", {})
 st.session_state.setdefault("canaux_communs", {})
 st.session_state.setdefault("canaux", {})
-st.session_state.setdefault("essais", {})
 st.session_state.setdefault("campagne", None)
+st.session_state.setdefault("zones", [])
 
 
 def _section(prefixe: str) -> dict[str, object]:
@@ -232,6 +233,24 @@ def canaux_du_fichier(chemin: str) -> dict[str, str]:
     }
 
 
+def detecter_zones(cfg) -> list:
+    """Détecte les zones de chaque acquisition, sans lancer l'analyse complète.
+
+    Permet de vérifier ce que l'outil a trouvé AVANT de calculer quoi que ce
+    soit — c'est ce qui rend le mode automatique auditable.
+    """
+    resultats = []
+    mapping = cfg.canaux_pour("")
+    for fichier in lecteurs.lister_fichiers(cfg.racine):
+        try:
+            donnees = A.preparer(fichier, cfg, mapping)
+        except Exception as exc:
+            resultats.append(Zn.ZonesFichier(chemin=fichier, duree_s=0.0, erreur=str(exc)))
+            continue
+        resultats.append(Zn.detecter(donnees, cfg))
+    return resultats
+
+
 def tracer_visualisation(
     fichier: Path, noms: list[str], catalogue: dict[str, str],
     derivee_active: bool, canal_a: str, operateur: str, canal_b: str,
@@ -299,8 +318,6 @@ def _appliquer_inventaire(inventaire: dict[str, dict]) -> None:
         st.session_state["canaux_communs"] = depart["canaux_communs"]
     for dossier, mapping in depart["canaux"].items():
         st.session_state["canaux"].setdefault(dossier, mapping)
-    for dossier, declaration in depart["essais"].items():
-        st.session_state["essais"].setdefault(dossier, declaration)
     # Alimente les clés de widgets, sans toucher à celles déjà renseignées.
     for role, valeur in st.session_state["canaux_communs"].items():
         if role == "etat":
@@ -313,10 +330,6 @@ def _appliquer_inventaire(inventaire: dict[str, dict]) -> None:
                 st.session_state.setdefault(f"canal::{dossier}::etat", list(valeur or []))
             else:
                 st.session_state.setdefault(f"canal::{dossier}::{role}", valeur or E.CANAL_ABSENT)
-    for dossier, declaration in st.session_state["essais"].items():
-        st.session_state.setdefault(f"type::{dossier}", declaration["type"])
-        st.session_state.setdefault(f"ld::{dossier}", bool(declaration["ligne_droite"]))
-        st.session_state.setdefault(f"gr::{dossier}", declaration.get("groupe_remontage") or "")
 
 
 def _charger_configuration(chemin: Path) -> None:
@@ -327,7 +340,6 @@ def _charger_configuration(chemin: Path) -> None:
             st.session_state[cle] = valeur
     etat = E.etat_depuis_dict(brut)
     st.session_state["canaux"] = etat["canaux"]
-    st.session_state["essais"] = etat["essais"]
     defaut = (brut.get("canaux") or {}).get("defaut") or {}
     if defaut:
         st.session_state["canaux_communs"] = defaut
@@ -345,10 +357,6 @@ def _charger_configuration(chemin: Path) -> None:
                 st.session_state[f"canal::{dossier}::etat"] = list(valeur or [])
             else:
                 st.session_state[f"canal::{dossier}::{role}"] = valeur or E.CANAL_ABSENT
-    for dossier, declaration in etat["essais"].items():
-        st.session_state[f"type::{dossier}"] = declaration["type"]
-        st.session_state[f"ld::{dossier}"] = bool(declaration["ligne_droite"])
-        st.session_state[f"gr::{dossier}"] = declaration.get("groupe_remontage") or ""
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +398,12 @@ with st.sidebar:
                     key="freq",
                     help="Grille de temps commune. Au moins égale à la cadence du canal "
                     "le plus rapide utilisé.")
+    _case(
+        "Sorties du banc chargées symétriquement", "ligne_droite", False,
+        "Condition pour que le résidu gauche − droite soit un indicateur métrologique "
+        "et non un écart physique réel. À décocher si un essai sollicite le "
+        "différentiel ou s'accompagne de patinage d'un seul côté.",
+    )
 
     st.divider()
     st.markdown("**Configuration enregistrée**")
@@ -412,11 +426,61 @@ with st.sidebar:
     )
 
 
+def _mapping_depuis_widgets(prefixe: str) -> dict[str, object]:
+    mapping: dict[str, object] = {}
+    for role in E.ORDRE_CANAUX:
+        valeur = st.session_state.get(f"{prefixe}{role}", E.CANAL_ABSENT)
+        mapping[role] = None if valeur == E.CANAL_ABSENT else valeur
+    mapping["etat"] = list(st.session_state.get(f"{prefixe}etat", []))
+    return mapping
+
+
+def _configuration_courante() -> dict | None:
+    inventaire = st.session_state["inventaire"]
+    if not st.session_state["racine"]:
+        return None
+    thermique = dict(_section("t"))
+    thermique["plage_service_C"] = (
+        float(st.session_state["plage"]) if st.session_state["plage_connue"] else None
+    )
+    intercorrelation = dict(_section("i"))
+    if not intercorrelation["passe_haut_Hz"]:
+        intercorrelation["passe_haut_Hz"] = None
+
+    commun = st.session_state["mapping_commun"]
+    return E.construire_dict(
+        racine=st.session_state["racine"],
+        dossier_sortie=st.session_state["dossier_sortie"],
+        pleine_echelle_Nm=st.session_state["pe"],
+        mode_comparaison=st.session_state["mode"],
+        rapport_reduction=st.session_state["rapport"],
+        incertitude_reference_k1_Nm=(
+            float(st.session_state["u_ref"]) if st.session_state["u_ref_connue"] else None
+        ),
+        frequence_Hz=st.session_state["freq"],
+        remontage_realise={"Oui": True, "Non": False, "Non précisé": None}[
+            st.session_state["remontage"]
+        ],
+        canaux={} if commun else {
+            d: _mapping_depuis_widgets(f"canal::{d}::") for d in inventaire
+        },
+        canaux_communs=_mapping_depuis_widgets("gcanal::") if commun else None,
+        # Aucun essai déclaré : les zones sont découvertes automatiquement.
+        essais={},
+        ligne_droite=bool(st.session_state["ligne_droite"]),
+        paliers=_section("p"),
+        intercorrelation=intercorrelation,
+        zero=_section("z"),
+        thermique=thermique,
+        diagnostic=_section("d"),
+    )
+
+
 onglets = st.tabs(
-    ["1 · Exploration", "2 · Visualisation", "3 · Canaux", "4 · Essais",
+    ["1 · Exploration", "2 · Visualisation", "3 · Canaux", "4 · Zones détectées",
      "5 · Hypothèses", "6 · Analyse & résultats"]
 )
-EXPLORATION, VISUALISATION, CANAUX, ESSAIS, HYPOTHESES, ANALYSE = range(6)
+EXPLORATION, VISUALISATION, CANAUX, ZONES, HYPOTHESES, ANALYSE = range(6)
 
 # ---------------------------------------------------------------------------
 # 1 · Exploration
@@ -425,9 +489,12 @@ EXPLORATION, VISUALISATION, CANAUX, ESSAIS, HYPOTHESES, ANALYSE = range(6)
 with onglets[EXPLORATION]:
     st.subheader("Inventaire des canaux")
     st.markdown(
-        "<div class='aide'>Lit un échantillon de fichiers par sous-dossier et liste "
-        "les canaux réellement présents, avec leurs unités et leurs cadences. "
-        "C'est ce relevé qui sert à confirmer les libellés — rien n'est supposé.</div>",
+        "<div class='aide'>Lit un échantillon de fichiers et liste les canaux réellement "
+        "présents, avec leurs unités et leurs cadences. C'est ce relevé qui sert à "
+        "confirmer les libellés — rien n'est supposé.<br>"
+        "Les acquisitions posées directement dans le dossier racine sont regroupées sous "
+        "<code>(racine)</code> ; les sous-dossiers, s'il y en a, forment chacun un groupe "
+        "— un simple classement d'affichage, sans effet sur les calculs.</div>",
         unsafe_allow_html=True,
     )
     st.write("")
@@ -479,7 +546,7 @@ with onglets[EXPLORATION]:
                 st.dataframe(donnees["canaux"], use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------------------
-# 2 · Canaux
+# 3 · Canaux
 # ---------------------------------------------------------------------------
 
 with onglets[VISUALISATION]:
@@ -491,8 +558,8 @@ with onglets[VISUALISATION]:
         st.markdown(
             "<div class='aide'>Trace n'importe quel canal en fonction du temps, fichier par "
             "fichier. Sert à vérifier qu'une acquisition contient bien ce qu'on croit, et que "
-            "son allure correspond au type d'essai déclaré — un contrôle que l'analyse ne peut "
-            "pas faire à votre place.<br>"
+            "son allure correspond à ce que l'onglet « Zones détectées » y a repéré — un "
+            "contrôle que l'analyse ne peut pas faire à votre place.<br>"
             "Les courbes sont <b>groupées par unité</b>, un panneau par unité : superposer un "
             "couple et un régime sur un même axe écraserait l'un des deux.</div>",
             unsafe_allow_html=True,
@@ -639,50 +706,89 @@ with onglets[CANAUX]:
                     _multiselect_etat("Canaux d'état", f"canal::{dossier}::etat", options[1:])
 
 # ---------------------------------------------------------------------------
-# 3 · Essais
+# 4 · Zones détectées
 # ---------------------------------------------------------------------------
 
-with onglets[ESSAIS]:
-    st.subheader("Déclaration des essais")
+with onglets[ZONES]:
+    st.subheader("Zones détectées")
     inventaire = st.session_state["inventaire"]
-    if not inventaire:
-        st.info("Lance d'abord l'inventaire (onglet 1).")
+    if not st.session_state["racine"]:
+        st.info("Renseigne le dossier racine (barre latérale).")
     else:
         st.markdown(
-            "<div class='aide'>Le <b>type</b> détermine le traitement appliqué. "
-            "<b>Ligne droite</b> : cocher si les deux transmissions voient le même couple "
-            "par construction (sur banc, sorties chargées symétriquement) — c'est la condition "
-            "pour que le résidu gauche − droite soit un indicateur métrologique et non un "
-            "écart physique réel. <b>Groupe de remontage</b> : deux étiquettes distinctes sont "
-            "nécessaires pour que la répétabilité après remontage existe.</div>",
+            "<div class='aide'>Aucun type d'essai n'est à déclarer : chaque acquisition est "
+            "examinée pour <b>ce qu'elle contient réellement</b> — paliers stabilisés, plage "
+            "dynamique, relevés de zéro — et chaque grandeur est calculée à partir des zones "
+            "qui la concernent, tous fichiers confondus.<br>"
+            "Ce tableau montre ce qui a été trouvé. <b>Automatique ne veut pas dire opaque</b> : "
+            "si une acquisition n'alimente pas ce que vous attendiez, les seuils de détection "
+            "se règlent dans l'onglet Hypothèses.</div>",
             unsafe_allow_html=True,
         )
         st.write("")
-        types = list(E.LIBELLES_TYPES)
-        for dossier in inventaire:
-            c1, c2, c3 = st.columns([3, 1, 1.4])
-            with c1:
-                st.selectbox(dossier, types, format_func=lambda t: E.LIBELLES_TYPES[t],
-                             key=f"type::{dossier}")
-            with c2:
-                _case("Ligne droite", f"ld::{dossier}", False)
-            with c3:
-                st.text_input("Groupe remontage", placeholder="avant / apres",
-                              key=f"gr::{dossier}")
 
-        etiquettes = {
-            (st.session_state.get(f"gr::{d}") or "").strip()
-            for d in inventaire
-        } - {""}
-        if len(etiquettes) < 2:
-            st.caption(
-                f"ℹ️ {len(etiquettes)} groupe(s) de remontage déclaré(s). La répétabilité après "
-                "remontage sera annoncée non calculable — motivée comme grandeur non définie "
-                "si tu indiques dans l'onglet Hypothèses qu'aucun remontage n'a eu lieu."
+        if st.button("Détecter les zones", type="primary", use_container_width=False):
+            configuration = _configuration_courante()
+            cfg, erreurs = E.valider(configuration) if configuration else (None, ["configuration incomplète"])
+            if erreurs or cfg is None:
+                st.error("Configuration invalide :\n\n" + "\n".join(f"- {e}" for e in erreurs))
+            else:
+                try:
+                    with st.spinner("Lecture des acquisitions (lecture seule)…"):
+                        st.session_state["zones"] = detecter_zones(cfg)
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Détection impossible : {exc}")
+
+        zones = st.session_state["zones"]
+        if not zones:
+            st.info("Lance la détection pour voir ce que contiennent tes acquisitions.")
+        else:
+            synthese = Zn.synthese(zones)
+            colonnes = st.columns(5)
+            for colonne, (libelle, cle) in zip(colonnes, (
+                ("Acquisitions", "fichiers"), ("Régression", "régression"),
+                ("Hystérésis", "hystérésis"), ("Retard", "retard"),
+                ("Dérive de zéro", "dérive de zéro"),
+            )):
+                colonne.metric(libelle, synthese[cle])
+
+            st.dataframe(
+                [
+                    {
+                        "Acquisition": z.chemin.name,
+                        # Placée juste après le nom : c'est la conclusion du relevé,
+                        # les colonnes suivantes n'en sont que la justification.
+                        "Alimente": ", ".join(z.contributions()) or "—",
+                        "Durée (s)": round(z.duree_s, 1),
+                        "Paliers": len(z.paliers),
+                        "Niveaux": z.niveaux_distincts,
+                        "Montée/desc.": "oui" if z.a_montee_et_descente else "—",
+                        # Texte plutôt que nombre : « — » se lit comme une absence,
+                        # là où une case vide laisserait croire à un relevé manquant.
+                        "Dynamique (s)": (
+                            f"{z.duree_dynamique_s:.0f}" if z.alimente_retard else "—"
+                        ),
+                        "Zéros déb./fin": "oui" if z.alimente_derive_zero else "—",
+                    }
+                    for z in zones
+                ],
+                use_container_width=True, hide_index=True,
             )
 
+            sans_contribution = [z for z in zones if not z.contributions() and z.erreur is None]
+            if sans_contribution:
+                st.warning(
+                    f"{len(sans_contribution)} acquisition(s) n'alimentent aucune grandeur : "
+                    + ", ".join(f"`{z.chemin.name}`" for z in sans_contribution[:5])
+                    + ". Vérifie le mapping, ou desserre les seuils de détection."
+                )
+            for z in zones:
+                if z.erreur:
+                    st.error(f"`{z.chemin.name}` : {z.erreur}")
+
 # ---------------------------------------------------------------------------
-# 4 · Hypothèses
+# 5 · Hypothèses
 # ---------------------------------------------------------------------------
 
 with onglets[HYPOTHESES]:
@@ -765,63 +871,8 @@ with onglets[HYPOTHESES]:
                   key="d::seuil_correlation_point_fct")
 
 # ---------------------------------------------------------------------------
-# 5 · Analyse & résultats
+# 6 · Analyse & résultats
 # ---------------------------------------------------------------------------
-
-
-def _mapping_depuis_widgets(prefixe: str) -> dict[str, object]:
-    mapping: dict[str, object] = {}
-    for role in E.ORDRE_CANAUX:
-        valeur = st.session_state.get(f"{prefixe}{role}", E.CANAL_ABSENT)
-        mapping[role] = None if valeur == E.CANAL_ABSENT else valeur
-    mapping["etat"] = list(st.session_state.get(f"{prefixe}etat", []))
-    return mapping
-
-
-def _configuration_courante() -> dict | None:
-    inventaire = st.session_state["inventaire"]
-    if not inventaire:
-        return None
-    thermique = dict(_section("t"))
-    thermique["plage_service_C"] = (
-        float(st.session_state["plage"]) if st.session_state["plage_connue"] else None
-    )
-    intercorrelation = dict(_section("i"))
-    if not intercorrelation["passe_haut_Hz"]:
-        intercorrelation["passe_haut_Hz"] = None
-
-    commun = st.session_state["mapping_commun"]
-    return E.construire_dict(
-        racine=st.session_state["racine"],
-        dossier_sortie=st.session_state["dossier_sortie"],
-        pleine_echelle_Nm=st.session_state["pe"],
-        mode_comparaison=st.session_state["mode"],
-        rapport_reduction=st.session_state["rapport"],
-        incertitude_reference_k1_Nm=(
-            float(st.session_state["u_ref"]) if st.session_state["u_ref_connue"] else None
-        ),
-        frequence_Hz=st.session_state["freq"],
-        remontage_realise={"Oui": True, "Non": False, "Non précisé": None}[
-            st.session_state["remontage"]
-        ],
-        canaux={} if commun else {
-            d: _mapping_depuis_widgets(f"canal::{d}::") for d in inventaire
-        },
-        canaux_communs=_mapping_depuis_widgets("gcanal::") if commun else None,
-        essais={
-            d: {
-                "type": st.session_state.get(f"type::{d}", E.type_propose(d)),
-                "ligne_droite": bool(st.session_state.get(f"ld::{d}", False)),
-                "groupe_remontage": st.session_state.get(f"gr::{d}") or None,
-            }
-            for d in inventaire
-        },
-        paliers=_section("p"),
-        intercorrelation=intercorrelation,
-        zero=_section("z"),
-        thermique=thermique,
-        diagnostic=_section("d"),
-    )
 
 
 with onglets[ANALYSE]:
@@ -881,15 +932,13 @@ with onglets[ANALYSE]:
         pe = campagne.config.pleine_echelle_Nm
         st.divider()
 
-        balayage = next(
-            (e for e in campagne.par_type("balayage")
-             if e.regression and not e.regression.non_calculable), None
-        )
-        reg = balayage.regression if balayage else None
-        retards = [
-            e.recalage_principal.retard_ms for e in campagne.par_type("dynamique")
-            if e.recalage_principal and not e.recalage_principal.non_calculable
-        ]
+        # Les tuiles lisent les grandeurs consolidées de la campagne : elles sont
+        # renseignées de la même façon que l'essai soit déclaré ou que la zone
+        # ait été découverte, donc l'affichage ne dépend pas du mode.
+        reg = campagne.regression_globale
+        if reg is not None and reg.non_calculable:
+            reg = None
+        retards = campagne.retards_ms
         inc = campagne.incertitude
 
         m1, m2, m3, m4 = st.columns(4)
@@ -897,8 +946,10 @@ with onglets[ANALYSE]:
                   _valeur(100 * reg.b / pe, 3, True, " % PE") if reg else "non calculable")
         m2.metric("Erreur de sensibilité",
                   _valeur(100 * (reg.a - 1), 3, True, " %") if reg else "non calculable")
+        # Même médiane que le rapport : la tuile et le tableau ne doivent pas
+        # afficher deux chiffres différents pour la même grandeur.
         m3.metric("Retard temporel",
-                  _valeur(sorted(retards)[len(retards) // 2], 1, True, " ms")
+                  _valeur(float(np.median(retards)), 1, True, " ms")
                   if retards else "non calculable")
         m4.metric("Incertitude élargie (k=2)",
                   _valeur(inc.U_k2_pc_pe, 3, False, " % PE")
@@ -914,8 +965,10 @@ with onglets[ANALYSE]:
             )
 
         st.divider()
+        detail = ("Détail par acquisition" if campagne.mode == "automatique"
+                  else "Détail par essai")
         vues = st.tabs(["Tableau récapitulatif", "Conclusions", "Figures",
-                        "Incertitude", "Cartes de contrôle", "Détail par essai", "Export"])
+                        "Incertitude", "Cartes de contrôle", detail, "Export"])
         with vues[0]:
             st.markdown(R.tableau_recapitulatif(campagne))
         with vues[1]:

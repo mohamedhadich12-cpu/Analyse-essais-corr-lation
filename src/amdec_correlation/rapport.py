@@ -53,9 +53,12 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
     cfg = campagne.config
     lignes: list[tuple[str, str, str]] = []
 
-    balayages = campagne.par_type("balayage")
-    essai_bal = next((e for e in balayages if e.regression and not e.regression.non_calculable), None)
-    reg = essai_bal.regression if essai_bal else None
+    # Le tableau lit les résultats CONSOLIDÉS : il n'a pas à savoir si les
+    # essais ont été déclarés ou si leurs zones ont été découvertes.
+    reg = campagne.regression_globale
+    if reg is not None and reg.non_calculable:
+        reg = None
+    source = campagne.source_regression or "les paliers stabilisés"
 
     # 1. Offset b
     if reg:
@@ -64,15 +67,14 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         lignes.append((
             "Offset b (% PE)",
             _f(offset, 3, signe=True),
-            f"Ordonnée à l'origine de la régression sur « {essai_bal.nom} » : "
+            f"Ordonnée à l'origine de la régression sur {source} : "
             f"{reg.b:+.2f} ± {reg.sigma_b:.2f} N·m (±{incert:.3f} % PE, k=1), "
             f"sur {reg.n} paliers stabilisés.",
         ))
     else:
         motif = _motif(
-            balayages[0].regression.non_calculable if balayages and balayages[0].regression else None,
-            balayages[0].erreurs[0] if balayages and balayages[0].erreurs else None,
-            "aucun essai déclaré de type `balayage` en configuration",
+            campagne.regression_globale.non_calculable if campagne.regression_globale else None,
+            "aucun palier stabilisé exploitable dans les acquisitions",
         )
         lignes.append(("Offset b (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
@@ -90,22 +92,21 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
                        "Découle de la même régression que l'offset, non disponible."))
 
     # 3. Non-linéarité
-    if essai_bal and math.isfinite(essai_bal.non_linearite_pc_pe):
+    if math.isfinite(campagne.non_linearite_pc_pe) and reg:
         lignes.append((
             "Non-linéarité (% PE)",
-            _f(essai_bal.non_linearite_pc_pe, 3),
+            _f(campagne.non_linearite_pc_pe, 3),
             f"Résidu maximal par rapport à la droite de régression "
             f"({reg.residu_max:.2f} N·m), écart-type des résidus "
             f"{reg.ecart_type_residus:.2f} N·m.",
         ))
     else:
         lignes.append(("Non-linéarité (% PE)", NON_CALCULABLE,
-                       "Nécessite une régression exploitable sur un essai de balayage."))
+                       "Nécessite une régression exploitable sur des paliers stabilisés."))
 
     # 4. Hystérésis
-    hyst_essai = next((e for e in balayages if e.hysteresis and not e.hysteresis.non_calculable), None)
-    if hyst_essai:
-        h = hyst_essai.hysteresis
+    h = campagne.hysteresis_globale
+    if h is not None and not h.non_calculable:
         lignes.append((
             "Hystérésis (% PE)",
             _f(h.max_pc_pe, 3),
@@ -115,8 +116,8 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         ))
     else:
         motif = _motif(
-            balayages[0].hysteresis.non_calculable if balayages and balayages[0].hysteresis else None,
-            "aucun essai de balayage exploitable",
+            h.non_calculable if h else None,
+            "aucune acquisition ne présente montée et descente",
         )
         lignes.append(("Hystérésis (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
@@ -131,10 +132,10 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         ))
     else:
         motif = _motif(campagne.motif_remontage, rep_rem.non_calculable if rep_rem else None)
-        rep_simple = next(
-            (e.repetabilite for e in campagne.par_type("repetabilite")
-             if e.repetabilite and not e.repetabilite.non_calculable),
-            None,
+        rep_simple = (
+            campagne.repetabilite_globale
+            if campagne.repetabilite_globale and not campagne.repetabilite_globale.non_calculable
+            else None
         )
         complement = (
             f" À titre indicatif, la répétabilité **sans remontage** (essais répétés à "
@@ -146,33 +147,25 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
                        _majuscule(motif) + "." + complement))
 
     # 6. Retard temporel
-    retards = [
-        e.recalage_principal.retard_ms
-        for e in campagne.par_type("dynamique")
-        if e.recalage_principal and not e.recalage_principal.non_calculable
-    ]
+    valides = [(c, r) for c, r in campagne.recalages_globaux if not r.non_calculable]
+    retards = [r.retard_ms for _, r in valides]
     if retards:
         mediane = float(np.median(retards))
-        detail = ", ".join(
-            f"{e.nom} : {e.recalage_principal.retard_ms:+.1f} ms"
-            for e in campagne.par_type("dynamique")
-            if e.recalage_principal and not e.recalage_principal.non_calculable
-        )
+        apercu = valides[:6]
+        detail = ", ".join(f"{Path(c).name} : {r.retard_ms:+.1f} ms" for c, r in apercu)
+        if len(valides) > len(apercu):
+            detail += f", … (+{len(valides) - len(apercu)})"
         lignes.append((
             "Retard temporel (ms)",
             _f(mediane, 1, signe=True),
-            f"Médiane sur {len(retards)} essai(s) dynamique(s) — {detail}. "
+            f"Médiane sur {len(retards)} acquisition(s) dynamique(s) — {detail}. "
             f"Valeur positive = voie transmissions en retard sur la référence banc. "
             f"Recherche bornée à ±{cfg.intercorrelation.retard_max_ms:.0f} ms.",
         ))
     else:
         motif = _motif(
-            *[
-                e.recalage_principal.non_calculable
-                for e in campagne.par_type("dynamique")
-                if e.recalage_principal
-            ],
-            "aucun essai déclaré de type `dynamique` en configuration",
+            *[r.non_calculable for _, r in campagne.recalages_globaux],
+            "aucune acquisition ne présente de plage dynamique identifiable",
         )
         lignes.append(("Retard temporel (ms)", NON_CALCULABLE, _majuscule(motif) + "."))
 
@@ -198,9 +191,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
                        _majuscule(_motif(th.non_calculable if th else None)) + "."))
 
     # 8. Dérive de zéro
-    derives = [
-        (e.nom, d) for e in campagne.essais for d in e.derives_zero_valides
-    ]
+    derives = campagne.derives_zero_globales
     if derives:
         pire_nom, pire = max(derives, key=lambda nd: abs(nd[1].derive_pc_pe))
         valeurs = [d.derive_pc_pe for _, d in derives]
@@ -212,10 +203,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             f"moyenne {np.mean(valeurs):+.3f} % PE, étendue {np.ptp(valeurs):.3f} % PE.",
         ))
     else:
-        motif = _motif(
-            *[d.non_calculable for e in campagne.essais for _, d in e.derives_zero],
-            "aucun relevé de zéro identifiable",
-        )
+        motif = _motif("aucun relevé de zéro avant/après identifiable dans les acquisitions")
         lignes.append(("Dérive de zéro sur cycle (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 9. Incertitude élargie
@@ -370,7 +358,69 @@ def section_incertitude(campagne: ResultatCampagne) -> str:
     return texte
 
 
+def section_detail_acquisitions(campagne: ResultatCampagne) -> str:
+    """Relevé acquisition par acquisition, en organisation automatique.
+
+    Aucun essai n'étant déclaré, il n'y a pas de « détail par essai » à rédiger :
+    ce qui doit être vérifiable, c'est **ce qui a été trouvé dans chaque fichier**
+    et ce que ce fichier a effectivement alimenté. Sans ce relevé, l'organisation
+    automatique serait opaque — et un chiffre qu'on ne peut pas remonter à sa
+    source n'a pas sa place dans un rapport relu par des tiers.
+    """
+    if not campagne.zones:
+        return "_Aucune acquisition analysée._\n"
+
+    recalages = {chemin.name: rec for chemin, rec in campagne.recalages_globaux}
+    derives = dict(campagne.derives_zero_globales)
+
+    lignes = [
+        "| Acquisition | Durée (s) | Paliers | Niveaux | ↑ et ↓ | Dynamique (s) "
+        "| Zéros déb./fin | Alimente |",
+        "|---|---:|---:|---:|:---:|---:|:---:|---|",
+    ]
+    for z in campagne.zones:
+        if z.erreur:
+            lignes.append(
+                f"| `{z.chemin.name}` | — | — | — | — | — | — | "
+                f"**non exploitée** — {z.erreur} |"
+            )
+            continue
+        dynamique = f"{z.duree_dynamique_s:.0f}" if z.alimente_retard else "—"
+        lignes.append(
+            f"| `{z.chemin.name}` | {z.duree_s:.0f} | {len(z.paliers)} "
+            f"| {z.niveaux_distincts} | {'oui' if z.a_montee_et_descente else '—'} "
+            f"| {dynamique} | {'oui' if z.alimente_derive_zero else '—'} "
+            f"| {', '.join(z.contributions()) or '—'} |"
+        )
+
+    detail = []
+    for nom, rec in sorted(recalages.items()):
+        if rec.non_calculable:
+            detail.append(f"- Recalage `{nom}` : {rec.non_calculable}")
+        else:
+            detail.append(
+                f"- Recalage `{nom}` : {rec.retard_ms:+.1f} ms "
+                f"(r = {rec.correlation_pic:.3f}, fenêtre {rec.duree_fenetre_s:.0f} s, "
+                f"RMS résidu {rec.rms_residu_avant_Nm:.1f} → {rec.rms_residu_apres_Nm:.1f} N·m)"
+            )
+    for nom, d in sorted(derives.items()):
+        detail.append(
+            f"- Dérive de zéro `{nom}` : {d.derive_pc_pe:+.3f} % PE "
+            f"({d.zero_debut_Nm:+.2f} → {d.zero_fin_Nm:+.2f} N·m)"
+            if not d.non_calculable
+            else f"- Dérive de zéro `{nom}` : {d.non_calculable}"
+        )
+
+    texte = "\n".join(lignes) + "\n"
+    if detail:
+        texte += "\n" + "\n".join(detail) + "\n"
+    return texte
+
+
 def section_detail_essais(campagne: ResultatCampagne) -> str:
+    if campagne.mode == "automatique":
+        return section_detail_acquisitions(campagne)
+
     cfg = campagne.config
     blocs = []
     for e in campagne.essais:
@@ -488,7 +538,7 @@ def rediger(campagne: ResultatCampagne) -> str:
         "\n".join(f"- {a}" for a in campagne.avertissements)
         if campagne.avertissements
         else (
-            "_Aucun : tous les canaux attendus sont mappés sur tous les essais déclarés, "
+            "_Aucun : tous les canaux attendus sont mappés sur toutes les acquisitions, "
             "et toutes les saisies utilisateur sont renseignées._"
         )
     )
@@ -496,6 +546,9 @@ def rediger(campagne: ResultatCampagne) -> str:
         "\n".join(f"- `figures/{f.name}`" for f in figures)
         if figures
         else "_Aucune figure produite._"
+    )
+    titre_detail = (
+        "Détail par acquisition" if campagne.mode == "automatique" else "Détail par essai"
     )
 
     return f"""# Chapitre 10 — Apport de la campagne de corrélation sur banc GMP
@@ -519,7 +572,7 @@ Le **résidu** est défini partout comme `couple_mesuré − couple_référence`
 ## 10.4 Paramètres proposés pour les cartes de contrôle (chapitre 11)
 
 {section_spc(campagne)}
-## 10.5 Détail par essai
+## 10.5 {titre_detail}
 
 {section_detail_essais(campagne)}
 ## 10.6 Hypothèses de traitement

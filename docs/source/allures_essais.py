@@ -7,10 +7,10 @@ Produit `docs/allures_couple_par_essai.png` : pour chacun des sept essais de la
 campagne, la forme que doit avoir le couple au cours du temps, et les zones sur
 lesquelles le pipeline s'appuie.
 
-⚠️ CE SONT DES ALLURES DE PRINCIPE, tracées à la main pour illustrer chaque type
-d'essai. Aucune donnée mesurée n'y figure. La planche sert à vérifier d'un coup
-d'œil que le type déclaré pour un dossier correspond à ce que contiennent
-réellement les fichiers — pas à valider des valeurs.
+⚠️ CE SONT DES ALLURES DE PRINCIPE, tracées à la main pour illustrer chaque
+essai. Aucune donnée mesurée n'y figure. La planche sert à reconnaître d'un coup
+d'œil ce que contient une acquisition, et à confronter cette lecture au relevé de
+l'onglet « Zones détectées » — pas à valider des valeurs.
 
 Charte reprise des figures d'analyse : une seule série par panneau, marques
 fines, grille en filet plein, encres de texte jamais colorées.
@@ -108,7 +108,8 @@ def balayage(ax) -> None:
             ha="center", weight="bold")
     _annoter(ax, 45, 600, "chaque palier tenu\njusqu'à établissement", dx=-2, dy=-330)
     ax.set_ylim(-90, 1450)
-    _habiller(ax, "1-Balayage Couple", "type « balayage » — l'aller-retour est indispensable")
+    _habiller(ax, "1-Balayage Couple",
+              "paliers en montée PUIS en descente — régression et hystérésis")
 
 
 def repetabilite(ax) -> None:
@@ -124,7 +125,8 @@ def repetabilite(ax) -> None:
         horloge += t[-1] + 4.0
     _annoter(ax, 40, 1000, "les MÊMES niveaux,\nrépétés relevé après relevé", dx=42, dy=-330)
     ax.set_ylim(-90, 1250)
-    _habiller(ax, "2-CPC 20 °C", "type « répétabilité » — la répétition des niveaux fait tout")
+    _habiller(ax, "2-CPC 20 °C",
+              "les mêmes niveaux d'un relevé à l'autre — répétabilité")
 
 
 PUISSANCE_W = 125_700.0  # ≈ 1000 N·m à 1200 tr/min, ordre de grandeur d'une traction
@@ -148,7 +150,7 @@ def iso_puissance_statique(ax) -> None:
              dx=26, dy=300)
     ax.set_ylim(0, 1200)
     _habiller(ax, "4-iso Pwr traction MaV statique",
-              "type « répétabilité » — paliers stabilisés, mais à couples tous différents")
+              "paliers stabilisés, mais à couples tous différents")
 
 
 def depart_arrete(ax) -> None:
@@ -167,7 +169,7 @@ def depart_arrete(ax) -> None:
              dx=17, dy=180)
     ax.set_ylim(-90, 1400)
     _habiller(ax, "3-4_1000M_DA — départ arrêté",
-              "type « dynamique » — transitoire franc depuis l'arrêt")
+              "plage dynamique franche depuis l'arrêt — retard")
 
 
 def decollage_pente(ax) -> None:
@@ -188,7 +190,7 @@ def decollage_pente(ax) -> None:
     _annoter(ax, 34, 1180, "couple élevé maintenu\n→ forte montée en température", dx=0, dy=-620)
     ax.set_ylim(-90, 1620)
     _habiller(ax, "5-Décollage en pente",
-              "type « dynamique » — les deux relevés de zéro donnent la dérive")
+              "repos aux deux bouts — retard et dérive de zéro")
 
 
 def iso_puissance_dynamique(ax) -> None:
@@ -203,7 +205,7 @@ def iso_puissance_dynamique(ax) -> None:
              "parcourus en continu", dx=-2, dy=430)
     ax.set_ylim(150, 1250)
     _habiller(ax, "6-iso Pwr traction MaV dynamique",
-              "type « dynamique » — le pendant transitoire de l'essai statique")
+              "le pendant transitoire de l'essai statique — retard")
 
 
 def wltc(ax) -> None:
@@ -221,57 +223,62 @@ def wltc(ax) -> None:
     ax.text(duree / 2, 1010, "plage exploitée pour l'intercorrélation",
             color=ENCRE_2, fontsize=6.8, ha="center")
     ax.set_ylim(-380, 1150)
-    _habiller(ax, "7-WLTC", "type « dynamique » — variations permanentes, phases contrastées")
+    _habiller(ax, "7-WLTC",
+              "variations permanentes, repos aux deux bouts — retard et dérive")
 
 
 def cle_de_lecture(ax) -> None:
     ax.axis("off")
     ax.text(0, 1.0, "Comment s'en servir", transform=ax.transAxes, color=ENCRE,
             fontsize=9, weight="bold", va="top")
+    # Une ligne par entrée : la clé partage son panneau avec la légende des
+    # aplats, et quatre blocs de deux lignes la feraient déborder.
     lignes = [
-        ("balayage", "Des paliers, et un aller-retour.\n"
-                     "Sans descente, pas d'hystérésis."),
-        ("répétabilité", "Des paliers aux MÊMES niveaux, répétés.\n"
-                         "À iso-puissance, prévoir plusieurs relevés."),
-        ("dynamique", "Des variations continues.\n"
-                      "Un signal trop plat masque le retard."),
+        ("paliers stabilisés", "Trois niveaux distincts au moins,\nsinon pas de régression."),
+        ("montée ET descente", "Dans un MÊME fichier,\nsinon pas d'hystérésis."),
+        ("niveaux partagés", "Un niveau atteint par deux fichiers,\nc'est une répétition."),
+        ("plage dynamique", "Des variations continues ;\nun signal plat masque le retard."),
     ]
     # La position du bloc suivant est calée sur l'ENCOMBREMENT RÉEL du bloc
     # précédent, mesuré après tracé. Estimer la hauteur d'une ligne conduit
     # immanquablement à recouvrir la légende du bas.
     figure = ax.get_figure()
     figure.canvas.draw()
-    y = 0.90
-    for type_essai, texte in lignes:
-        ax.text(0, y, type_essai, transform=ax.transAxes, color=SERIE_1,
+    y = 0.93
+    for zone, texte in lignes:
+        ax.text(0, y, zone, transform=ax.transAxes, color=SERIE_1,
                 fontsize=7.6, weight="bold", va="top")
-        bloc = ax.text(0, y - 0.055, texte, transform=ax.transAxes, color=ENCRE_2,
-                       fontsize=7, va="top", linespacing=1.6)
+        bloc = ax.text(0, y - 0.05, texte, transform=ax.transAxes, color=ENCRE_2,
+                       fontsize=7, va="top", linespacing=1.35)
         figure.canvas.draw()
         boite = bloc.get_window_extent().transformed(ax.transAxes.inverted())
-        y = boite.y0 - 0.045
+        y = boite.y0 - 0.035
 
-    for hauteur, couleur, alpha, libelle in (
-        (0.09, AQUA, .25, "relevé de zéro (dérive)"),
-        (0.03, ORANGE, .18, "plage dynamique (retard)"),
+    # La légende des aplats suit elle aussi le dernier bloc mesuré : à hauteur
+    # fixe, l'ajout d'une entrée au-dessus la recouvrirait sans prévenir.
+    hauteur = y - 0.03
+    for couleur, alpha, libelle in (
+        (AQUA, .25, "relevé de zéro (dérive)"),
+        (ORANGE, .18, "plage dynamique (retard)"),
     ):
         ax.add_patch(plt.Rectangle((0, hauteur), 0.06, 0.035, transform=ax.transAxes,
                                    facecolor=couleur, alpha=alpha, edgecolor="none"))
         ax.text(0.08, hauteur + 0.017, libelle, transform=ax.transAxes,
                 color=ENCRE_2, fontsize=7, va="center")
+        hauteur -= 0.06
 
 
 def construire() -> Path:
     _style()
     figure, axes = plt.subplots(4, 2, figsize=(11.6, 13.2))
     figure.suptitle(
-        "Allure du couple attendue par type d'essai",
+        "Allure du couple attendue, essai par essai",
         x=0.09, y=0.982, ha="left", fontsize=14, color=ENCRE, weight="bold",
     )
     figure.text(
         0.09, 0.962,
         "Allures de principe, tracées à titre d'illustration — aucune donnée mesurée. "
-        "Sert à vérifier que le type déclaré correspond au contenu réel des fichiers.",
+        "À confronter au relevé de l'onglet « Zones détectées ».",
         ha="left", fontsize=8, color=ATTENUE,
     )
     for trace, ax in zip(

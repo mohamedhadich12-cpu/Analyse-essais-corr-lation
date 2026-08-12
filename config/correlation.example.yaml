@@ -5,12 +5,31 @@
 #
 # MODE D'EMPLOI
 #   1. Copier ce fichier en `config/correlation.yaml`.
-#   2. Renseigner `racine_donnees`.
+#   2. Renseigner `racine_donnees` : UN dossier contenant les acquisitions
+#      (.mf4, .mdf, .aif). Aucun classement par type d'essai n'est demandé ;
+#      les sous-dossiers, s'il y en a, sont parcourus comme le reste.
 #   3. Lancer `python scripts/01_inventaire.py --racine "<racine>"`.
 #   4. Recopier ici la section `canaux:` produite dans
 #      `sortie/inventaire/canaux_proposition.yaml`, APRÈS avoir vérifié chaque
 #      libellé dans `sortie/inventaire/inventaire_canaux.md`.
 #   5. Lancer `python scripts/02_analyse.py`.
+#
+# MODE AUTOMATIQUE (celui de ce fichier)
+#   Sans bloc `essais:`, l'outil n'attend AUCUNE déclaration de type. Chaque
+#   acquisition est examinée pour ce qu'elle contient réellement, et chaque
+#   grandeur est calculée à partir des zones qui la concernent, tous fichiers
+#   confondus :
+#     paliers stabilisés                    → régression, offset, sensibilité,
+#                                              non-linéarité
+#     montée ET descente dans un fichier    → hystérésis
+#     même niveau atteint par ≥ 2 fichiers  → répétabilité
+#     plage d'activité dynamique continue   → recalage temporel
+#     repos en début ET en fin de fichier   → dérive de zéro
+#   Un fichier alimente autant de grandeurs qu'il contient de zones : rien
+#   n'oblige un essai à n'avoir qu'un seul usage.
+#
+#   Le bloc `essais:` reste accepté (voir plus bas) pour figer soi-même le
+#   traitement de chaque dossier ; il bascule alors l'outil en mode déclaré.
 #
 # Tout ce qui est marqué « À RENSEIGNER » ou « À CONFIRMER » doit être tranché
 # par l'exploitant : le pipeline ne devine aucune de ces valeurs, et déclarera
@@ -18,7 +37,7 @@
 # =============================================================================
 
 # --- Données et sortie -------------------------------------------------------
-racine_donnees: "C:/Users/SD17365/Documents"   # À RENSEIGNER (chemin exact)
+racine_donnees: "C:/user/SD17365/Documents"   # À RENSEIGNER (chemin exact)
 dossier_sortie: "sortie"
 
 # --- Caractéristiques de la chaîne de mesure ---------------------------------
@@ -50,6 +69,19 @@ comparaison:
   # Attention à l'unité et au facteur : c'est une incertitude-TYPE (k=1). Si le
   # certificat donne une incertitude élargie U à k=2, saisir U/2.
   incertitude_reference_k1_Nm: null
+
+# --- Symétrie de chargement --------------------------------------------------
+# `true` UNIQUEMENT si les deux transmissions voient le même couple par
+# construction — c'est la condition pour que le résidu gauche − droite soit un
+# indicateur métrologique (redondance indépendante du banc) et non un écart
+# physique réel. Sur banc GMP, cela revient à : les deux sorties sont-elles
+# chargées symétriquement ? Ici oui sur toute la campagne.
+#
+# À repasser à `false` si un essai sollicite volontairement le différentiel
+# (sol dissymétrique, différentiel piloté) ou s'accompagne de patinage avec
+# intervention de l'antipatinage d'un seul côté : l'indicateur de redondance
+# est alors simplement déclaré non calculable, plutôt que faux.
+ligne_droite: true
 
 # --- Démontage / remontage de la chaîne de mesure ----------------------------
 # `realise: false` déclare qu'AUCUN démontage/remontage n'a eu lieu au cours de
@@ -99,78 +131,48 @@ canaux:
     # Ne renseigner ici que les dossiers dont les noms de canaux diffèrent.
     {}
 
-# --- Déclaration des essais --------------------------------------------------
-# type :
-#   balayage      → régression, offset, sensibilité, non-linéarité, hystérésis
-#   repetabilite  → dispersion à couple de référence constant
-#   dynamique     → recalage temporel par intercorrélation
+# --- Déclaration des essais (FACULTATIF) -------------------------------------
+# Laisser ce bloc ABSENT — c'est le cas par défaut — pour le mode automatique :
+# les zones sont découvertes fichier par fichier (cf. « MODE D'EMPLOI » en tête).
 #
-# ligne_droite : true UNIQUEMENT si les deux transmissions voient le même couple
-#   par construction pendant l'essai — c'est la condition pour que le résidu
-#   gauche − droite soit un indicateur métrologique et non un écart physique réel.
-#   Sur banc GMP, cela revient à : les deux sorties sont-elles chargées
-#   symétriquement ? Ici oui sur toute la campagne, d'où `true` partout.
-#   À repasser à false sur tout essai sollicitant volontairement le
-#   différentiel (sol dissymétrique, différentiel piloté), ou s'accompagnant
-#   de patinage avec intervention de l'antipatinage d'un seul côté.
+# Le renseigner bascule l'outil en mode déclaré : chaque sous-dossier reçoit un
+# type imposé, et seul le traitement correspondant lui est appliqué. Utile pour
+# figer une exploitation qu'on veut reproduire à l'identique, ou pour écarter
+# volontairement une partie d'une acquisition.
 #
-# groupe_remontage : étiquette libre ("avant" / "apres" ...). Il en faut au moins
-#   DEUX distinctes dans la campagne pour que la « répétabilité après remontage »
-#   soit calculable. Aucun remontage n'ayant été réalisé sur cette campagne
-#   (cf. `remontage.realise` plus bas), la grandeur restera non calculable :
-#   c'est une décision actée, pas un oubli de configuration.
-essais:
-  "1-Balayage Couple":
-    type: "balayage"
-    ligne_droite: true            # banc chargé symétriquement
-    groupe_remontage: null        # aucun remontage sur la campagne
-
-  "2-CPC 20°C":
-    type: "repetabilite"
-    ligne_droite: true            # banc chargé symétriquement
-    groupe_remontage: null        # aucun remontage sur la campagne
-
-  # Départ arrêté sur 1 km : accélération pleine charge depuis l'arrêt.
-  # `dynamique` — le transitoire de décollage est la sollicitation la plus
-  # franche de la campagne, donc le meilleur support d'identification du retard
-  # par intercorrélation (front de couple très raide, pic de corrélation étroit).
-  "3-4_1000M_DA":
-    type: "dynamique"
-    # Départ arrêté : symétrique par définition, et le banc charge les deux
-    # sorties symétriquement. ⚠️ C'est l'essai le plus exposé au patinage :
-    # en cas d'intervention de l'antipatinage d'un seul côté, repasser à false.
-    ligne_droite: true
-
-  # Points stabilisés à iso-puissance, traction en marche avant.
-  # `repetabilite` — traité comme une série de points stabilisés.
-  #
-  # ⚠️ À iso-puissance, le couple varie d'un point à l'autre (il suit
-  # l'inverse du régime) : deux points d'un même relevé ne sont donc PAS au
-  # même couple de référence. La répétabilité n'est calculable que si le
-  # dossier contient plusieurs relevés couvrant les mêmes points de
-  # fonctionnement — le pipeline regroupe les paliers par niveau de couple à
-  # travers tous les fichiers du dossier. Avec un seul relevé, il annoncera
-  # « aucun niveau de couple de référence n'est répété au moins 2 fois »,
-  # et l'essai n'alimentera que la régression du § détail.
-  "4-iso Pwr_traction MaV_statique":
-    type: "repetabilite"
-    ligne_droite: true            # banc chargé symétriquement
-
-  "5-Décollage en pente":
-    type: "dynamique"
-    ligne_droite: true            # banc chargé symétriquement
-
-  "6-iso Pwr_traction MaV_dynamique":
-    type: "dynamique"
-    ligne_droite: true            # banc chargé symétriquement
-
-  "7-WLTC":
-    type: "dynamique"
-    ligne_droite: true            # banc chargé symétriquement
+#   type :
+#     balayage      → régression, offset, sensibilité, non-linéarité, hystérésis
+#     repetabilite  → dispersion à couple de référence constant
+#     dynamique     → recalage temporel par intercorrélation
+#
+#   ligne_droite : même signification que le drapeau global ci-dessus, mais
+#     déclaré essai par essai.
+#
+#   groupe_remontage : étiquette libre ("avant" / "apres" ...). Il en faut au
+#     moins DEUX distinctes dans la campagne pour que la « répétabilité après
+#     remontage » soit calculable. Aucun remontage n'ayant été réalisé sur cette
+#     campagne (cf. `remontage.realise`), la grandeur reste non calculable :
+#     c'est une décision actée, pas un oubli de configuration.
+#
+# essais:
+#   "1-Balayage Couple":
+#     type: "balayage"
+#     ligne_droite: true
+#     groupe_remontage: null
+#   "7-WLTC":
+#     type: "dynamique"
+#     ligne_droite: true
 
 # =============================================================================
 # HYPOTHÈSES DE TRAITEMENT
 # Ces valeurs sont reprises telles quelles dans le § « Hypothèses » du rapport.
+#
+# En mode automatique, ce sont ELLES qui décident de ce que chaque acquisition
+# alimente : un fichier n'apporte des paliers que si ses plages stabilisées
+# satisfont les critères ci-dessous, et n'apporte un retard que si son activité
+# dynamique satisfait ceux de la section `intercorrelation`. Si une acquisition
+# n'alimente pas ce qu'on en attendait, c'est ici que ça se règle — jamais en
+# forçant un résultat.
 # =============================================================================
 
 # --- Détection des paliers stabilisés ---------------------------------------
@@ -187,6 +189,10 @@ intercorrelation:
   passe_haut_Hz: 0.2                   # null pour désactiver le filtrage préalable
   seuil_activite_pc_pe: 2.0            # écart-type mini du couple de référence pour juger « dynamique »
   fenetre_activite_s: 1.0
+  # Un cycle passe par des extrema où la variance instantanée s'annule : sans
+  # ce comblement, la plage dynamique se fragmenterait en morceaux trop courts.
+  # Toute interruption d'activité plus brève que cette durée est ignorée.
+  duree_comblement_s: 5.0
 
 # --- Relevés de zéro --------------------------------------------------------
 zero:
