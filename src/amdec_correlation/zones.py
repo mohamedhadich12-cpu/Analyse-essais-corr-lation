@@ -25,7 +25,7 @@ l'existence d'un démontage/remontage.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +48,16 @@ class ZonesFichier:
     # endroit ne se repère qu'en voyant aussi celles qui ont été écartées.
     plages_ecartees: list[tuple[int, int]] = field(default_factory=list)
     plages_repos: list[tuple[int, int]] = field(default_factory=list)
+
+    # Les mêmes plages, en SECONDES. Les indices ci-dessus ne valent que pour la
+    # grille de temps sur laquelle la détection a tourné : les porter sur un
+    # tracé décimé, recadré, ou rééchantillonné à une autre fréquence — ce que
+    # fait l'onglet Visualisation — les fait sortir du tableau. Un instant, lui,
+    # reste valable sur n'importe quelle grille. Tout affichage passe donc par
+    # ces champs ; les indices restent réservés au découpage des signaux.
+    plage_dynamique_s: tuple[float, float] | None = None
+    plages_ecartees_s: list[tuple[float, float]] = field(default_factory=list)
+    plages_repos_s: list[tuple[float, float]] = field(default_factory=list)
     zero_au_debut: bool = False
     zero_a_la_fin: bool = False
     erreur: str | None = None
@@ -140,37 +150,6 @@ class ZonesFichier:
         return " · ".join(morceaux) or "aucune zone exploitable"
 
 
-def sur_grille_decimee(zones: ZonesFichier, pas: int) -> ZonesFichier:
-    """Ramène les indices de zone sur une grille décimée d'un facteur `pas`.
-
-    `plage_dynamique`, `plages_repos` et `plages_ecartees` sont des **indices**
-    dans le signal pleine résolution. Un tracé allégé n'affiche qu'un point sur
-    `pas` : y porter les indices d'origine décalerait les aplats, d'autant plus
-    que le fichier est long. Les paliers, eux, portent des **temps** et
-    traversent sans retouche.
-
-    L'objet d'origine n'est jamais modifié : la détection reste la référence,
-    seule sa représentation est adaptée.
-    """
-    if pas <= 1:
-        return zones
-
-    def _ramener(plage: tuple[int, int]) -> tuple[int, int]:
-        debut, fin = plage[0] // pas, plage[1] // pas
-        # Une plage plus courte que le pas doit garder au moins un point, sinon
-        # elle disparaîtrait du tracé sans que rien ne le signale.
-        return (debut, max(fin, debut + 1))
-
-    return replace(
-        zones,
-        plage_dynamique=(
-            _ramener(zones.plage_dynamique) if zones.plage_dynamique else None
-        ),
-        plages_repos=[_ramener(p) for p in zones.plages_repos],
-        plages_ecartees=[_ramener(p) for p in zones.plages_ecartees],
-    )
-
-
 def detecter(donnees, cfg: Config) -> ZonesFichier:
     """Examine une acquisition déjà chargée et y repère les zones exploitables."""
     t, reference, mesure = donnees.t, donnees.reference, donnees.mesure
@@ -184,18 +163,24 @@ def detecter(donnees, cfg: Config) -> ZonesFichier:
         temperature=donnees.temperature, source=donnees.chemin.name,
     )
 
+    def _en_secondes(plage: tuple[int, int]) -> tuple[float, float]:
+        return (float(t[plage[0]]), float(t[plage[1] - 1]))
+
     candidates = M.plages_dynamiques(
         t, reference, cfg.pleine_echelle_Nm, cfg.intercorrelation
     )
     if candidates:
         plage = candidates[0]
         zones.plage_dynamique = plage
+        zones.plage_dynamique_s = _en_secondes(plage)
         zones.duree_dynamique_s = float(t[plage[1] - 1] - t[plage[0]])
         zones.plages_ecartees = candidates[1:]
+        zones.plages_ecartees_s = [_en_secondes(p) for p in candidates[1:]]
 
     zones.plages_repos = M.plages_de_repos(
         t, reference, donnees.regime, cfg.pleine_echelle_Nm, cfg.zero
     )
+    zones.plages_repos_s = [_en_secondes(p) for p in zones.plages_repos]
     if zones.plages_repos and zones.duree_s > 0:
         bord = cfg.zero.fraction_bord * zones.duree_s
         premiere, derniere = zones.plages_repos[0], zones.plages_repos[-1]

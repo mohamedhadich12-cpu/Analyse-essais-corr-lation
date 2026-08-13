@@ -347,11 +347,13 @@ def detecter_zones(cfg) -> tuple[list, dict[str, tuple]]:
         zones = Zn.detecter(donnees, cfg)
         resultats.append(zones)
         pas = max(1, int(np.ceil(donnees.t.size / MAX_POINTS_TRACES)))
+        # Les zones sont repérées en secondes : le facteur de décimation n'a
+        # pas à être conservé, les aplats retombent au bon endroit quel que
+        # soit l'allègement du tracé.
         signaux[fichier.name] = (
             donnees.t[::pas].copy(),
             donnees.reference[::pas].copy(),
             donnees.mesure[::pas].copy(),
-            pas,
         )
     return resultats, signaux
 
@@ -361,9 +363,9 @@ def figure_zones_png(nom: str, zones, signaux: dict, pe: float,
     """Rend la figure des zones d'une acquisition, selon le filtre courant."""
     if nom not in signaux:
         return None
-    t, reference, mesure, pas = signaux[nom]
+    t, reference, mesure = signaux[nom]
     figure = graphiques.figure_zones(
-        t, reference, mesure, Zn.sur_grille_decimee(zones, pas), pe,
+        t, reference, mesure, zones, pe,
         titre=f"{nom} — zones détectées", types=types,
     )
     tampon = io.BytesIO()

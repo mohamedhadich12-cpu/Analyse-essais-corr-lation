@@ -349,29 +349,57 @@ def test_une_memoire_sans_mapping_ne_doit_pas_ecraser_une_memoire_qui_en_a():
     assert E.mapping_renseigne({"canaux": {"defaut": {"etat": ["LED"]}}}) is False
 
 
-def test_les_zones_suivent_la_decimation_du_trace():
-    """Les indices de zone portent sur le signal plein, le tracé est décimé.
+def test_les_zones_se_reperent_en_secondes_pas_en_indices():
+    """Le tracé peut être décimé, recadré, ou sur une autre grille de temps.
 
-    Les passer tels quels décalerait les aplats — d'autant plus que le fichier
-    est long. C'est invisible sur une figure : seul un test l'attrape.
+    C'est le cas de l'onglet Visualisation : il recharge ses propres canaux, à
+    sa propre fréquence, puis n'affiche qu'une fenêtre décimée. Porter des
+    indices de détection sur cet axe-là les fait sortir du tableau — l'outil
+    tombait sur `IndexError`. Les zones s'affichent donc en secondes.
     """
-    from amdec_correlation.zones import ZonesFichier, sur_grille_decimee
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from amdec_correlation import graphiques
+    from amdec_correlation.zones import ZonesFichier
+
+    # Détection sur 200 Hz pendant 100 s : les indices vont jusqu'à 20 000.
+    zones = ZonesFichier(
+        chemin=Path("essai.mf4"), duree_s=100.0,
+        plage_dynamique=(4000, 12000), plage_dynamique_s=(20.0, 60.0),
+        plages_repos=[(0, 400)], plages_repos_s=[(0.0, 2.0)],
+        plages_ecartees=[(16000, 19000)], plages_ecartees_s=[(80.0, 95.0)],
+    )
+    # Affichage sur une grille dix fois plus lâche : 2 000 points seulement.
+    t = np.linspace(0.0, 100.0, 2000)
+    y = np.zeros_like(t)
+
+    figure = graphiques.figure_zones(t, y, y, zones, 1500.0)  # ne doit pas lever
+    axe = figure.axes[0]
+    libelles = [texte.get_text() for texte in axe.get_legend().get_texts()]
+    plt.close(figure)
+    for cle in ("dynamique", "repos", "ecartee"):
+        assert graphiques.TYPES_ZONES[cle] in libelles
+
+
+def test_une_zone_hors_de_la_fenetre_affichee_est_ignoree():
+    """Une entrée de légende sans aplat visible ferait chercher une zone absente."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from amdec_correlation import graphiques
+    from amdec_correlation.zones import ZonesFichier
 
     zones = ZonesFichier(
         chemin=Path("essai.mf4"), duree_s=100.0,
-        plage_dynamique=(2000, 6000),
-        plages_repos=[(0, 400), (19000, 20000)],
-        plages_ecartees=[(8000, 9000)],
+        plage_dynamique_s=(80.0, 95.0),      # hors fenêtre
+        plages_repos_s=[(0.0, 2.0)],         # dans la fenêtre
     )
-    ramenees = sur_grille_decimee(zones, pas=10)
-    assert ramenees.plage_dynamique == (200, 600)
-    assert ramenees.plages_repos == [(0, 40), (1900, 2000)]
-    assert ramenees.plages_ecartees == [(800, 900)]
-    # L'original n'est pas modifié : la détection reste la référence.
-    assert zones.plage_dynamique == (2000, 6000)
-    # Une plage plus courte que le pas garde au moins un point, sinon elle
-    # disparaîtrait du tracé sans que rien ne le signale.
-    courte = ZonesFichier(chemin=Path("x.mf4"), duree_s=1.0, plages_repos=[(5, 9)])
-    assert sur_grille_decimee(courte, pas=100).plages_repos == [(0, 1)]
-    # Pas de décimation : l'objet passe tel quel.
-    assert sur_grille_decimee(zones, pas=1) is zones
+    t = np.linspace(0.0, 10.0, 500)          # la fenêtre affichée : 0 → 10 s
+    y = np.zeros_like(t)
+
+    figure = graphiques.figure_zones(t, y, y, zones, 1500.0)
+    libelles = [x.get_text() for x in figure.axes[0].get_legend().get_texts()]
+    plt.close(figure)
+    assert graphiques.TYPES_ZONES["repos"] in libelles
+    assert graphiques.TYPES_ZONES["dynamique"] not in libelles

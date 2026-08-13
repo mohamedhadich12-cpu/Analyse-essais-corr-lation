@@ -504,7 +504,13 @@ def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
     """Pose les zones détectées en aplats de fond sur un axe temporel.
 
     `types` restreint l'affichage aux familles demandées (clés de `TYPES_ZONES`) ;
-    `None` les affiche toutes.
+    `None` les affiche toutes. Les zones hors de la fenêtre de temps affichée
+    sont ignorées, et celles qui la chevauchent sont rognées.
+
+    Tout est repéré en **secondes**, jamais en indices : le tracé peut être
+    décimé, recadré, ou porter une grille de temps différente de celle sur
+    laquelle la détection a tourné — un indice n'y survivrait pas, un instant
+    si.
 
     Renvoie les familles effectivement tracées, sous la forme
     `{clé: (teinte ou None, libellé)}` — la teinte vaut `None` pour les hachures,
@@ -515,15 +521,27 @@ def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
     presents: dict[str, tuple[str | None, str]] = {}
     if zones is None or t.size < 2:
         return presents
-    etendue = float(t[-1] - t[0]) or 1.0
+    t0, t1 = float(t[0]), float(t[-1])
+    etendue = (t1 - t0) or 1.0
 
-    def _aplat(debut: float, fin: float, teinte: str, cle: str, alpha: float) -> None:
-        if cle not in demandes:
+    def _aplat(debut: float, fin: float, teinte: str | None, cle: str,
+               alpha: float) -> None:
+        if cle not in demandes or fin < t0 or debut > t1:
+            # Hors de la fenêtre affichée : ne rien tracer, et surtout ne pas
+            # inscrire la famille dans la légende — une entrée sans aplat
+            # visible ferait chercher au lecteur une zone qui n'est pas là.
             return
+        debut, fin = max(debut, t0), min(fin, t1)
         # Une zone de durée nulle à l'écran ne se verrait pas : on garantit une
         # largeur minimale d'un millième de l'axe pour qu'elle reste repérable.
-        ax.axvspan(debut, max(fin, debut + etendue / 1000.0), color=teinte,
-                   alpha=alpha, linewidth=0, zorder=1)
+        fin = max(fin, debut + etendue / 1000.0)
+        if teinte is None:
+            # Plage écartée : hachures, sans aplat, pour se distinguer de la
+            # plage retenue sans lui disputer la lisibilité.
+            ax.axvspan(debut, fin, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
+                       hatch="///", linewidth=0, alpha=0.55, zorder=1)
+        else:
+            ax.axvspan(debut, fin, color=teinte, alpha=alpha, linewidth=0, zorder=1)
         presents.setdefault(cle, (teinte, TYPES_ZONES[cle]))
 
     for palier in getattr(zones, "paliers", []):
@@ -533,22 +551,17 @@ def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
         )
         _aplat(palier.t_debut, palier.t_fin, teinte, cle, alpha=0.22)
 
-    plage = getattr(zones, "plage_dynamique", None)
+    plage = getattr(zones, "plage_dynamique_s", None)
     if plage is not None:
-        _aplat(float(t[plage[0]]), float(t[plage[1] - 1]), TEINTE_DYNAMIQUE,
-               "dynamique", alpha=0.13)
+        _aplat(plage[0], plage[1], TEINTE_DYNAMIQUE, "dynamique", alpha=0.13)
 
-    # Les plages actives écartées, en hachures : montrer l'arbitrage, et pas
-    # seulement son résultat, est le seul moyen de repérer un mauvais choix.
-    if "ecartee" in demandes:
-        for debut, fin in getattr(zones, "plages_ecartees", []):
-            ax.axvspan(float(t[debut]), float(t[fin - 1]), facecolor="none",
-                       edgecolor=TEINTE_DYNAMIQUE, hatch="///", linewidth=0,
-                       alpha=0.55, zorder=1)
-            presents.setdefault("ecartee", (None, TYPES_ZONES["ecartee"]))
+    # Les plages actives écartées : montrer l'arbitrage, et pas seulement son
+    # résultat, est le seul moyen de repérer un mauvais choix.
+    for debut, fin in getattr(zones, "plages_ecartees_s", []):
+        _aplat(debut, fin, None, "ecartee", alpha=0.55)
 
-    for debut, fin in getattr(zones, "plages_repos", []):
-        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_REPOS, "repos", alpha=0.20)
+    for debut, fin in getattr(zones, "plages_repos_s", []):
+        _aplat(debut, fin, TEINTE_REPOS, "repos", alpha=0.20)
     return presents
 
 
