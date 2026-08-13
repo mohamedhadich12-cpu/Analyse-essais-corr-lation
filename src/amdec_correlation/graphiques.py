@@ -537,6 +537,13 @@ def figure_zones(
         debut, fin = zones.plage_dynamique
         _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_DYNAMIQUE, "dynamique",
                "plage dynamique — retard", alpha=0.13)
+    # Les plages actives écartées, en hachures : montrer l'arbitrage, et pas
+    # seulement son résultat, est le seul moyen de repérer un mauvais choix.
+    for debut, fin in getattr(zones, "plages_ecartees", []):
+        ax.axvspan(float(t[debut]), float(t[fin - 1]), facecolor="none",
+                   edgecolor=TEINTE_DYNAMIQUE, hatch="///", linewidth=0,
+                   alpha=0.55, zorder=1)
+        presents.setdefault("ecartee", (None, "plage active écartée"))
 
     for debut, fin in zones.plages_repos:
         _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_REPOS, "repos",
@@ -547,8 +554,14 @@ def figure_zones(
 
     poignees, etiquettes = ax.get_legend_handles_labels()
     for teinte, libelle in presents.values():
-        poignees.append(plt.Rectangle((0, 0), 1, 1, facecolor=teinte, alpha=0.30,
-                                      edgecolor="none"))
+        if teinte is None:  # plage écartée : hachures, sans aplat
+            poignees.append(plt.Rectangle(
+                (0, 0), 1, 1, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
+                hatch="///", linewidth=0, alpha=0.55,
+            ))
+        else:
+            poignees.append(plt.Rectangle((0, 0), 1, 1, facecolor=teinte, alpha=0.30,
+                                          edgecolor="none"))
         etiquettes.append(libelle)
     ax.legend(poignees, etiquettes, loc="lower right", bbox_to_anchor=(1.0, 1.0),
               ncol=min(3, len(etiquettes)), borderaxespad=0.0)

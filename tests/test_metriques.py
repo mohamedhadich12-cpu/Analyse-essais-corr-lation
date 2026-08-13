@@ -181,6 +181,103 @@ def test_recalage_retrouve_retard_et_son_signe(retard_s):
     assert recal.rms_residu_apres_Nm < 0.25 * recal.rms_residu_avant_Nm
 
 
+def _forme_depart_arrete(u: np.ndarray, ondulation_retro: float = 80.0) -> np.ndarray:
+    """Allure d'un départ arrêté : front raide, décroissance lente, rétro ondulé.
+
+    Le palier de rétro dure trois fois plus longtemps que le transitoire : c'est
+    le piège que le choix de plage doit éviter.
+    """
+    y = np.zeros_like(u)
+    front = (u >= 5.5) & (u < 6.2)
+    y[front] = 2250.0 * (u[front] - 5.5) / 0.7
+    plateau = (u >= 6.2) & (u < 10.5)
+    y[plateau] = 2230.0
+    decroissance = (u >= 10.5) & (u < 35.5)
+    y[decroissance] = 650.0 + 1580.0 * np.exp(-(u[decroissance] - 10.5) / 9.0)
+    retro = (u >= 35.5) & (u < 67.0)
+    y[retro] = -130.0 + ondulation_retro * np.sin(2 * np.pi * (u[retro] - 35.5) / 1.7)
+    return y
+
+
+def _deux_voies(forme, retard_s: float, graine: int = 0, bruit: float = 6.0):
+    """Référence et mesure, avec des bruits INDÉPENDANTS comme deux vraies voies.
+
+    Partager le bruit entre les deux voies fausserait tout : il constituerait un
+    repère temporel parfait, et l'intercorrélation retrouverait le retard même
+    quand la forme du signal ne le permet pas.
+    """
+    t = np.arange(0, 97.0, 1 / 200.0)
+    rng = np.random.default_rng(graine)
+    reference = forme(t) + rng.normal(0, bruit, t.size)
+    mesure = forme(t - retard_s) + rng.normal(0, bruit, t.size)
+    return t, reference, mesure
+
+
+def test_la_plage_dynamique_retient_le_transitoire_pas_le_palier_le_plus_long():
+    """Le choix se fait sur l'information portée, jamais sur la seule durée."""
+    t, ref, _ = _deux_voies(_forme_depart_arrete, 0.0)
+    plages = M.plages_dynamiques(t, ref, PE, ParamsIntercorrelation())
+    assert len(plages) >= 2, "le palier de rétro doit bien être un candidat"
+
+    debut, fin = plages[0]
+    # Le front de couple est vers 5,5 s ; le palier de rétro commence à 35,5 s.
+    assert t[debut] < 10.0 and t[fin - 1] < 35.0, (
+        f"plage retenue {t[debut]:.1f}–{t[fin - 1]:.1f} s : c'est le palier de rétro, "
+        "pas le transitoire"
+    )
+    # …et ce, alors même que l'autre candidate est bien plus longue.
+    ecartee = plages[1]
+    assert (ecartee[1] - ecartee[0]) > (fin - debut)
+
+
+@pytest.mark.parametrize("retard_s", [0.040, -0.040, 0.100])
+def test_le_retard_reste_juste_sur_un_depart_arrete(retard_s):
+    """Fenêtre courte : la coupure du passe-haut doit s'y adapter.
+
+    Sans cette adaptation, le régime transitoire du filtre occupe une part
+    notable de la fenêtre et déplace le pic de plus de dix millisecondes.
+    """
+    t, ref, mesure = _deux_voies(_forme_depart_arrete, retard_s)
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert recal.non_calculable is None
+    assert recal.retard_ms == pytest.approx(retard_s * 1000.0, abs=8.0)
+    assert recal.fenetre[0] < 10.0
+    # La coupure a bien été relevée : cinq périodes au moins dans la fenêtre.
+    assert recal.coupure_passe_haut_Hz > 0.2
+    periodes = recal.coupure_passe_haut_Hz * recal.duree_fenetre_s
+    assert periodes >= 0.95 * M.PERIODES_MIN_DANS_FENETRE
+
+
+@pytest.mark.parametrize("graine", range(6))
+def test_un_retard_porte_par_le_seul_front_est_annonce_comme_fragile(graine):
+    """Le tout est de le dire : la valeur est juste, mais mal assise."""
+    t, ref, mesure = _deux_voies(_forme_depart_arrete, 0.040, graine=graine)
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert recal.faiblement_identifie, (
+        "sur un départ arrêté, seul le front porte l'information de synchronisation : "
+        f"les sous-fenêtres ne peuvent pas s'accorder (étendue "
+        f"{recal.dispersion_blocs_ms:.1f} ms)"
+    )
+
+
+@pytest.mark.parametrize("graine", range(6))
+def test_un_cycle_a_variations_continues_n_est_pas_marque_fragile(graine):
+    """L'indicateur ne doit pas se déclencher là où le retard est bien assis."""
+    t, ref = _signal_dynamique()
+    rng = np.random.default_rng(graine)
+    ref = ref + rng.normal(0, 6.0, t.size)
+    mesure = np.interp(t - 0.040, t, ref, left=ref[0], right=ref[-1])
+    mesure = mesure + rng.normal(0, 6.0, t.size)
+
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert recal.retard_ms == pytest.approx(40.0, abs=3.0)
+    assert not recal.faiblement_identifie, (
+        f"étendue inter-blocs {recal.dispersion_blocs_ms:.1f} ms"
+    )
+    # Sur une fenêtre longue, la coupure demandée est respectée à l'identique.
+    assert recal.coupure_passe_haut_Hz == pytest.approx(0.2)
+
+
 def test_recalage_non_calculable_sur_signal_stationnaire():
     t = np.arange(0, 60, 1 / 200.0)
     ref = np.full(t.size, 500.0)

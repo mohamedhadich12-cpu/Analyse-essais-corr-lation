@@ -478,6 +478,13 @@ montre la part <em>effectivement moyennée</em> — la fraction finale de la pla
 toute la plage : le transitoire d'établissement est volontairement écarté.</p>
 </div>
 
+<p>
+Les plages actives <strong>écartées</strong> au profit de celle retenue apparaissent en hachures.
+C'est ce qui rend l'arbitrage vérifiable : sur un départ arrêté, le front de couple et le long
+palier de rétro ondulé sont tous deux « actifs », et retenir le mauvais ferait identifier le
+retard sur du bruit autour d'une constante — sans que rien ne le signale dans le chiffre produit.
+</p>
+
 <div class="astuce">
 <p><span class="etiq">Automatique ne veut pas dire opaque.</span> Si une acquisition n'alimente
 pas ce que vous en attendiez, le tableau dit laquelle et sur quel critère, et la figure montre
@@ -756,13 +763,27 @@ est un indicateur complémentaire.
 <h3>6 — Retard temporel</h3>
 <dl>
   <dt>Unité</dt><dd>ms — <strong>positif = voie transmissions en retard</strong> sur la référence banc</dd>
-  <dt>Méthode</dt><dd>intercorrélation des deux signaux sur la plage dynamique la plus longue, pic
-      affiné au sous-échantillon par interpolation parabolique</dd>
+  <dt>Méthode</dt><dd>intercorrélation des deux signaux sur la plage dynamique la plus
+      <strong>informative</strong>, pic affiné au sous-échantillon par interpolation parabolique</dd>
+  <dt>Choix de<br>la plage</dt><dd>entre plusieurs portions actives, celle qui maximise
+      <span class="formule">amplitude × √durée</span> du signal filtré — jamais la plus longue. Sur
+      un départ arrêté, un long palier de rétro ondulé l'emporterait sur le front de couple, court
+      mais seul porteur de l'information de synchronisation, et le retard serait identifié sur du
+      bruit autour d'une constante.</dd>
   <dt>Hypothèses</dt><dd>filtrage passe-haut à <strong>phase nulle</strong> préalable — sans lui, l'offset
       et les composantes lentes dominent le produit de corrélation et aplatissent le pic ; un
-      filtre à phase non nulle introduirait lui-même un retard. Recherche bornée. Les
-      interruptions courtes de la détection d'activité sont comblées : un cycle transitoire passe
-      par des extrema où la variance instantanée s'annule sans cesser d'être dynamique.</dd>
+      filtre à phase non nulle introduirait lui-même un retard. La coupure est <strong>relevée si la
+      fenêtre est courte</strong>, pour y loger au moins cinq périodes : sinon le régime transitoire du
+      filtre occupe une part notable de la fenêtre et déplace le pic. La corrélation est normalisée
+      par le <strong>recouvrement réel</strong> et non par la longueur de la fenêtre, faute de quoi le
+      pic penche vers zéro. Recherche bornée. Les interruptions courtes de la détection d'activité
+      sont comblées : un cycle transitoire passe par des extrema où la variance instantanée
+      s'annule sans cesser d'être dynamique.</dd>
+  <dt>Fiabilité</dt><dd>le retard est ré-estimé sur quatre sous-fenêtres de la plage retenue. Si
+      leurs résultats s'étendent au-delà du seuil d'accord, il est annoncé <strong>faiblement
+      identifié</strong> : il ne tient qu'à une partie du signal. C'est structurellement le cas d'un
+      départ arrêté — le front porte tout, la décroissance rien. La valeur reste le meilleur point
+      de la corrélation, mais elle est moins bien assise qu'un retard tiré d'un cycle.</dd>
   <dt>Lecture</dt><dd>un décalage des voies d'acquisition, pas un défaut de la chaîne de mesure de
       couple. Se corrige à l'acquisition.</dd>
 </dl>

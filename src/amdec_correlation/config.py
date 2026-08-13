@@ -152,7 +152,16 @@ class ParamsIntercorrelation:
         sont comblées : un cycle transitoire passe par des extrema où la
         variance instantanée s'annule sans que la phase cesse d'être dynamique,
         et sans ce comblement la fenêtre d'analyse serait fragmentée en
-        tronçons trop courts pour identifier le retard.
+        tronçons trop courts pour identifier le retard ;
+      * entre plusieurs portions dynamiques candidates, celle retenue est la
+        plus **informative** — amplitude × √durée du signal filtré — et non la
+        plus longue : sur un départ arrêté, un long palier de rétro bruité
+        l'emporterait sur le front de couple, court mais seul porteur de
+        l'information de synchronisation ;
+      * le retard est ré-estimé sur `n_blocs_coherence` sous-fenêtres égales ;
+        si leurs résultats s'écartent de plus de `accord_blocs_max_ms`, le
+        retard est annoncé comme faiblement identifié — il ne tient alors qu'à
+        une partie du signal.
     """
 
     retard_max_ms: float = 500.0
@@ -160,6 +169,12 @@ class ParamsIntercorrelation:
     seuil_activite_pc_pe: float = 2.0
     fenetre_activite_s: float = 1.0
     duree_comblement_s: float = 5.0
+    # Contrôle de cohérence interne du retard. Quatre blocs : en deçà la mesure
+    # est trop bruitée pour trancher, au-delà chaque bloc devient trop court
+    # pour porter le retard, et des essais parfaitement exploitables seraient
+    # signalés à tort.
+    n_blocs_coherence: int = 4
+    accord_blocs_max_ms: float = 20.0
 
 
 @dataclass(frozen=True)

@@ -152,15 +152,35 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
     if retards:
         mediane = float(np.median(retards))
         apercu = valides[:6]
-        detail = ", ".join(f"{Path(c).name} : {r.retard_ms:+.1f} ms" for c, r in apercu)
+        detail = ", ".join(
+            f"{Path(c).name} : {r.retard_ms:+.1f} ms"
+            + (" ⚠" if r.faiblement_identifie else "")
+            for c, r in apercu
+        )
         if len(valides) > len(apercu):
             detail += f", … (+{len(valides) - len(apercu)})"
+        # Une acquisition dont les sous-fenêtres ne s'accordent pas ne doit pas
+        # se fondre dans une médiane sans que le rapport le dise : le chiffre
+        # serait tenu pour mieux établi qu'il ne l'est.
+        fragiles = [Path(c).name for c, r in valides if r.faiblement_identifie]
+        reserve = (
+            f" ⚠ {len(fragiles)} acquisition(s) au retard faiblement identifié "
+            f"({', '.join(fragiles[:3])}"
+            + (", …" if len(fragiles) > 3 else "")
+            + ") : les sous-fenêtres de la plage corrélée y donnent des retards "
+            f"s'étendant sur plus de "
+            f"{cfg.intercorrelation.accord_blocs_max_ms:.0f} ms. Le retard n'y "
+            "tient qu'à une partie du signal — typiquement le seul front d'un "
+            "départ arrêté. À confronter aux essais à variations continues."
+            if fragiles else ""
+        )
         lignes.append((
             "Retard temporel (ms)",
             _f(mediane, 1, signe=True),
             f"Médiane sur {len(retards)} acquisition(s) dynamique(s) — {detail}. "
             f"Valeur positive = voie transmissions en retard sur la référence banc. "
-            f"Recherche bornée à ±{cfg.intercorrelation.retard_max_ms:.0f} ms.",
+            f"Recherche bornée à ±{cfg.intercorrelation.retard_max_ms:.0f} ms."
+            + reserve,
         ))
     else:
         motif = _motif(
@@ -398,10 +418,18 @@ def section_detail_acquisitions(campagne: ResultatCampagne) -> str:
         if rec.non_calculable:
             detail.append(f"- Recalage `{nom}` : {rec.non_calculable}")
         else:
+            reserve = (
+                f" — ⚠ **faiblement identifié** : les sous-fenêtres donnent "
+                f"{rec.dispersion_blocs_ms:.0f} ms d'étendue"
+                if rec.faiblement_identifie else ""
+            )
             detail.append(
                 f"- Recalage `{nom}` : {rec.retard_ms:+.1f} ms "
-                f"(r = {rec.correlation_pic:.3f}, fenêtre {rec.duree_fenetre_s:.0f} s, "
-                f"RMS résidu {rec.rms_residu_avant_Nm:.1f} → {rec.rms_residu_apres_Nm:.1f} N·m)"
+                f"(r = {rec.correlation_pic:.3f}, fenêtre {rec.duree_fenetre_s:.0f} s "
+                f"[{rec.fenetre[0]:.0f}–{rec.fenetre[1]:.0f} s], passe-haut "
+                f"{rec.coupure_passe_haut_Hz:.2f} Hz, RMS résidu "
+                f"{rec.rms_residu_avant_Nm:.1f} → {rec.rms_residu_apres_Nm:.1f} N·m)"
+                + reserve
             )
     for nom, d in sorted(derives.items()):
         detail.append(

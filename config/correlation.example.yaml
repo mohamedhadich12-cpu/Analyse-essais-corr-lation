@@ -186,6 +186,14 @@ paliers:
 # --- Recalage temporel par intercorrélation ---------------------------------
 intercorrelation:
   retard_max_ms: 500.0                 # bornes de recherche du retard
+  # Coupure du passe-haut appliqué avant corrélation. Sans lui, l'offset et les
+  # composantes lentes dominent le produit de corrélation et aplatissent le pic.
+  # La coupure est automatiquement RELEVÉE si la fenêtre retenue est courte, de
+  # façon à y loger au moins cinq périodes : un Butterworth à 0,2 Hz met
+  # plusieurs secondes à s'établir, et sur une fenêtre de dix secondes — le cas
+  # d'un départ arrêté — son régime transitoire déplacerait le pic de plusieurs
+  # dizaines de millisecondes. La coupure réellement appliquée est indiquée
+  # dans le § détail du rapport, essai par essai.
   passe_haut_Hz: 0.2                   # null pour désactiver le filtrage préalable
   seuil_activite_pc_pe: 2.0            # écart-type mini du couple de référence pour juger « dynamique »
   fenetre_activite_s: 1.0
@@ -193,6 +201,18 @@ intercorrelation:
   # ce comblement, la plage dynamique se fragmenterait en morceaux trop courts.
   # Toute interruption d'activité plus brève que cette durée est ignorée.
   duree_comblement_s: 5.0
+
+  # Contrôle de cohérence du retard. Le retard est ré-estimé sur autant de
+  # sous-fenêtres égales, et l'étendue de ces estimations est confrontée au
+  # seuil ci-dessous. Au-delà, le retard est annoncé « faiblement identifié » :
+  # il ne tient qu'à une partie du signal.
+  #
+  # C'est le cas d'un départ arrêté, où seul le front porte l'information de
+  # synchronisation — la décroissance qui suit n'en porte aucune. La valeur
+  # reste le meilleur point de la corrélation, mais elle est moins bien assise
+  # qu'un retard tiré d'un cycle à variations continues, et le rapport le dit.
+  n_blocs_coherence: 4
+  accord_blocs_max_ms: 20.0
 
 # --- Relevés de zéro --------------------------------------------------------
 zero:

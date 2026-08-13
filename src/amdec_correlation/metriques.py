@@ -467,6 +467,12 @@ def repetabilite(
 # Recalage temporel par intercorrélation
 # ---------------------------------------------------------------------------
 
+# Nombre minimal de périodes de la coupure passe-haut que doit contenir la
+# fenêtre corrélée. En deçà, le régime transitoire du filtre occupe une part
+# notable de la fenêtre et déplace le pic de corrélation. Cinq périodes
+# laissent le filtre s'établir sur environ un cinquième de la fenêtre.
+PERIODES_MIN_DANS_FENETRE = 5.0
+
 
 @dataclass
 class Recalage:
@@ -476,6 +482,14 @@ class Recalage:
     rms_residu_apres_Nm: float = float("nan")
     fenetre: tuple[float, float] = (float("nan"), float("nan"))
     duree_fenetre_s: float = float("nan")
+    # Étendue des retards ré-estimés sur des sous-fenêtres égales. Contrôle de
+    # cohérence interne : petite, le retard est porté par toute la fenêtre ;
+    # grande, il ne tient qu'à une partie du signal.
+    dispersion_blocs_ms: float = float("nan")
+    faiblement_identifie: bool = False
+    # Coupure du passe-haut RÉELLEMENT appliquée : relevée si la fenêtre est
+    # trop courte pour la coupure demandée (cf. `PERIODES_MIN_DANS_FENETRE`).
+    coupure_passe_haut_Hz: float = float("nan")
     retards_ms: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
     correlation: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
     non_calculable: str | None = None
@@ -488,22 +502,55 @@ class Recalage:
         return 1.0 - self.rms_residu_apres_Nm / self.rms_residu_avant_Nm
 
 
-def plage_dynamique(
+
+def _filtrer_comme_la_correlation(
+    signal: np.ndarray, fe: float, params: ParamsIntercorrelation
+) -> np.ndarray:
+    """Applique au signal le même passe-haut que `recalage_temporel`.
+
+    Juger une plage candidate sur le signal brut n'aurait pas de sens : ce que
+    l'intercorrélation voit, c'est le signal filtré. Une plage à couple élevé
+    mais constant y devient plate.
+    """
+    if not params.passe_haut_Hz:
+        return np.asarray(signal, dtype=float)
+    wn = params.passe_haut_Hz / (fe / 2.0)
+    if not 0 < wn < 1:
+        return np.asarray(signal, dtype=float)
+    b, a = sig_scipy.butter(2, wn, btype="highpass")
+    return sig_scipy.filtfilt(b, a, np.asarray(signal, dtype=float))
+
+
+def _score_dynamique(filtre: np.ndarray, plage: tuple[int, int]) -> float:
+    """Pouvoir d'identification du retard d'une plage candidate.
+
+    `amplitude × √durée` — le gain de rapport signal/bruit d'un filtrage adapté.
+    Prendre simplement la plage la plus LONGUE est un piège : sur un départ
+    arrêté, le palier de rétro, long et bruité, l'emporterait sur le front de
+    couple, court mais mille fois plus informatif, et le retard serait identifié
+    sur du bruit autour d'une constante. Prendre la plus AGITÉE en serait un
+    autre : deux secondes de transitoire ne valent pas trente secondes de cycle.
+    Le compromis entre les deux est ce produit.
+    """
+    debut, fin = plage
+    portion = filtre[debut:fin]
+    portion = portion[np.isfinite(portion)]
+    if portion.size < 2:
+        return 0.0
+    return float(np.std(portion) * np.sqrt(portion.size))
+
+
+def plages_dynamiques(
     t: np.ndarray,
     reference: np.ndarray,
     pleine_echelle_Nm: float,
     params: ParamsIntercorrelation,
-) -> tuple[int, int] | None:
-    """La plus longue plage contiguë où le signal est réellement dynamique.
+) -> list[tuple[int, int]]:
+    """Toutes les plages candidates, de la plus informative à la moins.
 
-    Critère : écart-type glissant du couple de référence au-dessus du seuil
-    d'activité. Les interruptions courtes sont comblées — un cycle transitoire
-    passe par des extrema où la variance instantanée s'annule sans cesser
-    d'être dynamique.
-
-    Renvoie `None` si aucune plage n'atteint la durée minimale, fixée à dix
-    fois le retard maximal recherché : en deçà, le pic d'intercorrélation n'est
-    pas identifiable.
+    Restituer les candidates écartées, et pas seulement la retenue, est ce qui
+    rend l'arbitrage vérifiable : sur une figure, une plage retenue au mauvais
+    endroit ne se repère que si l'on voit aussi celle qui a été écartée.
     """
     fe = frequence_echantillonnage(t)
     retard_max_s = params.retard_max_ms / 1000.0
@@ -516,8 +563,34 @@ def plage_dynamique(
     duree_min = max(int(round(10 * retard_max_s * fe)), int(round(2.0 * fe)))
     plages = _segments(actif, duree_min)
     if not plages:
-        return None
-    return max(plages, key=lambda p: p[1] - p[0])
+        return []
+    filtre = _filtrer_comme_la_correlation(reference, fe, params)
+    return sorted(plages, key=lambda p: _score_dynamique(filtre, p), reverse=True)
+
+
+def plage_dynamique(
+    t: np.ndarray,
+    reference: np.ndarray,
+    pleine_echelle_Nm: float,
+    params: ParamsIntercorrelation,
+) -> tuple[int, int] | None:
+    """La plage contiguë la plus **informative** pour identifier le retard.
+
+    Critère d'éligibilité : écart-type glissant du couple de référence au-dessus
+    du seuil d'activité. Les interruptions courtes sont comblées — un cycle
+    transitoire passe par des extrema où la variance instantanée s'annule sans
+    cesser d'être dynamique.
+
+    Critère de choix entre les plages éligibles : `amplitude × √durée` du signal
+    **filtré comme il le sera pour la corrélation** (cf. `_score_dynamique`), et
+    non la seule durée.
+
+    Renvoie `None` si aucune plage n'atteint la durée minimale, fixée à dix
+    fois le retard maximal recherché : en deçà, le pic d'intercorrélation n'est
+    pas identifiable.
+    """
+    plages = plages_dynamiques(t, reference, pleine_echelle_Nm, params)
+    return plages[0] if plages else None
 
 
 def plages_de_repos(
@@ -613,12 +686,24 @@ def recalage_temporel(
     rms_avant = rms(mesure[tr] - reference[tr])
 
     # Hypothèse 2 : passe-haut à phase nulle, puis centrage-réduction.
-    if params.passe_haut_Hz:
-        wn = params.passe_haut_Hz / (fe / 2.0)
+    # La coupure est relevée si la fenêtre est courte : un Butterworth à 0,2 Hz
+    # met plusieurs secondes à s'établir, et sur une fenêtre de dix secondes —
+    # le cas d'un départ arrêté — le régime transitoire du filtre occupe une
+    # part telle du signal qu'il déplace le pic de corrélation de plusieurs
+    # dizaines de millisecondes. On impose donc au moins cinq périodes de
+    # coupure dans la fenêtre. Sur un cycle long, la contrainte est inactive et
+    # la coupure demandée est respectée à l'identique.
+    coupure_Hz = float(params.passe_haut_Hz or 0.0)
+    if coupure_Hz:
+        duree_fenetre_s = x.size / fe
+        coupure_Hz = max(coupure_Hz, PERIODES_MIN_DANS_FENETRE / duree_fenetre_s)
+        wn = coupure_Hz / (fe / 2.0)
         if 0 < wn < 1:
             b, a = sig_scipy.butter(2, wn, btype="highpass")
             x = sig_scipy.filtfilt(b, a, x)
             y = sig_scipy.filtfilt(b, a, y)
+        else:
+            coupure_Hz = float(params.passe_haut_Hz)
     x = x - x.mean()
     y = y - y.mean()
     if x.std() == 0 or y.std() == 0:
@@ -628,7 +713,15 @@ def recalage_temporel(
 
     correlation = sig_scipy.correlate(y, x, mode="full")
     decalages = sig_scipy.correlation_lags(y.size, x.size, mode="full")
-    correlation = correlation / x.size  # coefficient de corrélation normalisé
+    # Normalisation par le RECOUVREMENT RÉEL, et non par la longueur de la
+    # fenêtre : à un décalage k, seuls n − |k| échantillons se superposent, et
+    # diviser par n sous-estime donc d'autant plus la corrélation que le décalage
+    # est grand. Ce biais incline le pic vers zéro. Il reste sans conséquence sur
+    # un signal large bande, dont le pic est étroit ; sur un transitoire lent —
+    # un front de départ arrêté — le sommet est plat, l'inclinaison l'emporte et
+    # le retard est nettement sous-estimé.
+    recouvrement = np.maximum(x.size - np.abs(decalages), 1)
+    correlation = correlation / recouvrement
 
     # Hypothèse 3 : bornage de la recherche.
     dans_bornes = np.abs(decalages) <= max(1, int(round(retard_max_s * fe)))
@@ -650,6 +743,7 @@ def recalage_temporel(
     valides = np.isfinite(mesure_recalee[tr])
     rms_apres = rms((mesure_recalee[tr] - reference[tr])[valides])
 
+    dispersion = _dispersion_par_blocs(x, y, fe, params)
     return Recalage(
         retard_ms=float(retard_s * 1000.0),
         correlation_pic=float(correlation[k]),
@@ -657,9 +751,83 @@ def recalage_temporel(
         rms_residu_apres_Nm=rms_apres,
         fenetre=(float(t[i0]), float(t[i1 - 1])),
         duree_fenetre_s=float(t[i1 - 1] - t[i0]),
+        coupure_passe_haut_Hz=coupure_Hz,
+        dispersion_blocs_ms=dispersion,
+        faiblement_identifie=bool(
+            math.isfinite(dispersion) and dispersion > params.accord_blocs_max_ms
+        ),
         retards_ms=decalages[dans_bornes] / fe * 1000.0,
         correlation=correlation[dans_bornes],
     )
+
+
+def _retard_par_correlation(
+    x: np.ndarray, y: np.ndarray, fe: float, params: ParamsIntercorrelation
+) -> float:
+    """Retard de `y` sur `x`, en secondes, sur deux extraits déjà découpés.
+
+    Même traitement que `recalage_temporel`, sans la sélection de fenêtre : sert
+    à ré-estimer le retard sur des sous-parties de la fenêtre retenue.
+    """
+    x, y = np.asarray(x, dtype=float).copy(), np.asarray(y, dtype=float).copy()
+    if x.size < 8 or y.size != x.size:
+        return float("nan")
+    x, y = x - x.mean(), y - y.mean()
+    if x.std() == 0 or y.std() == 0:
+        return float("nan")
+    x, y = x / x.std(), y / y.std()
+
+    correlation = sig_scipy.correlate(y, x, mode="full")
+    decalages = sig_scipy.correlation_lags(y.size, x.size, mode="full")
+    correlation = correlation / np.maximum(x.size - np.abs(decalages), 1)
+
+    dans_bornes = np.abs(decalages) <= max(1, int(round(params.retard_max_ms / 1000.0 * fe)))
+    if not dans_bornes.any():
+        return float("nan")
+    locaux = np.flatnonzero(dans_bornes)
+    k = locaux[int(np.argmax(correlation[dans_bornes]))]
+    delta = 0.0
+    if 0 < k < correlation.size - 1:
+        c0, c1, c2 = correlation[k - 1], correlation[k], correlation[k + 1]
+        denominateur = c0 - 2 * c1 + c2
+        if denominateur != 0:
+            delta = float(np.clip(0.5 * (c0 - c2) / denominateur, -1.0, 1.0))
+    return float((decalages[k] + delta) / fe)
+
+
+def _dispersion_par_blocs(
+    x: np.ndarray, y: np.ndarray, fe: float, params: ParamsIntercorrelation
+) -> float:
+    """Étendue des retards ré-estimés sur des sous-fenêtres égales, en ms.
+
+    Un contrôle de cohérence interne, et non un modèle : si toutes les portions
+    du même essai donnent le même retard, la valeur est portée par la fenêtre
+    entière ; si elles divergent, elle ne tient qu'à une partie du signal et le
+    chiffre global est fragile.
+
+    C'est le cas d'un départ arrêté : le front porte toute l'information de
+    synchronisation, la décroissance qui suit n'en porte aucune. Le retard s'y
+    lit sur un sommet de corrélation très plat, et rien dans le pic lui-même ne
+    le signale — seule cette confrontation le montre. Sur le jeu de validation,
+    la séparation est nette : quelques millisecondes sur un cycle à variations
+    continues, plusieurs centaines sur un départ arrêté.
+
+    `x` et `y` sont les signaux **déjà filtrés et réduits** de la fenêtre retenue.
+    """
+    n = max(2, int(params.n_blocs_coherence))
+    taille = x.size // n
+    if taille < 8:
+        return float("nan")
+    retards = [
+        _retard_par_correlation(
+            x[i * taille : (i + 1) * taille], y[i * taille : (i + 1) * taille], fe, params
+        )
+        for i in range(n)
+    ]
+    retards = [r for r in retards if math.isfinite(r)]
+    if len(retards) < 2:
+        return float("nan")
+    return (max(retards) - min(retards)) * 1000.0
 
 
 # ---------------------------------------------------------------------------

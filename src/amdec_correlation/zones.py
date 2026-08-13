@@ -43,6 +43,10 @@ class ZonesFichier:
     paliers: list[M.Palier] = field(default_factory=list)
     plage_dynamique: tuple[int, int] | None = None
     duree_dynamique_s: float = 0.0
+    # Les autres plages actives, écartées au profit de la précédente. Les
+    # conserver rend l'arbitrage vérifiable : une plage retenue au mauvais
+    # endroit ne se repère qu'en voyant aussi celles qui ont été écartées.
+    plages_ecartees: list[tuple[int, int]] = field(default_factory=list)
     plages_repos: list[tuple[int, int]] = field(default_factory=list)
     zero_au_debut: bool = False
     zero_a_la_fin: bool = False
@@ -102,7 +106,10 @@ class ZonesFichier:
                 detail += f" ({montees} ↑ / {descentes} ↓)"
             morceaux.append(detail)
         if self.plage_dynamique is not None:
-            morceaux.append(f"dynamique {self.duree_dynamique_s:.0f} s")
+            detail = f"dynamique {self.duree_dynamique_s:.0f} s"
+            if self.plages_ecartees:
+                detail += f" (retenue sur {len(self.plages_ecartees) + 1} candidates)"
+            morceaux.append(detail)
         if self.alimente_derive_zero:
             morceaux.append("zéros début et fin")
         elif self.plages_repos:
@@ -123,10 +130,14 @@ def detecter(donnees, cfg: Config) -> ZonesFichier:
         temperature=donnees.temperature, source=donnees.chemin.name,
     )
 
-    plage = M.plage_dynamique(t, reference, cfg.pleine_echelle_Nm, cfg.intercorrelation)
-    if plage is not None:
+    candidates = M.plages_dynamiques(
+        t, reference, cfg.pleine_echelle_Nm, cfg.intercorrelation
+    )
+    if candidates:
+        plage = candidates[0]
         zones.plage_dynamique = plage
         zones.duree_dynamique_s = float(t[plage[1] - 1] - t[plage[0]])
+        zones.plages_ecartees = candidates[1:]
 
     zones.plages_repos = M.plages_de_repos(
         t, reference, donnees.regime, cfg.pleine_echelle_Nm, cfg.zero

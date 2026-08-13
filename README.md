@@ -173,7 +173,7 @@ qu'elle alimente.
 | **Palier stabilisé** | l'écart-type du couple de **référence** reste sous `paliers.tolerance_stab_pc_pe` pendant au moins `paliers.duree_palier_s` | régression (offset, sensibilité, non-linéarité) dès **3 niveaux distincts** dans le fichier ; sinon répétabilité seule |
 | **Montée _et_ descente** dans le même fichier | des paliers de sens opposés existent au même niveau, à `tolerance_appariement_pc_pe` près | hystérésis |
 | **Même niveau atteint par ≥ 2 fichiers** | regroupement des paliers de **toute** la campagne par niveau de couple | répétabilité — deux acquisitions passant par le même point de fonctionnement constituent une répétition, quel qu'ait été le protocole |
-| **Plage dynamique** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées | retard temporel par intercorrélation |
+| **Plage dynamique** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées. Entre plusieurs candidates, la retenue est **la plus informative** — amplitude × √durée du signal filtré — jamais la plus longue | retard temporel par intercorrélation |
 | **Plages de repos** | couple et régime quasi nuls ; il en faut **deux distinctes**, l'une dans les premiers `zero.fraction_bord` de l'essai, l'autre dans les derniers | dérive de zéro sur cycle |
 
 Un même fichier peut contenir les trois familles de zones, et c'est fréquent : un
@@ -200,6 +200,24 @@ arrêt ne se voient que là. Ces figures sont aussi écrites en PNG
 > finale de la plage stable — et non toute la plage : une bande plus étroite que le
 > plateau est donc normale, c'est le transitoire d'établissement qui est écarté.
 
+Les plages actives **écartées** au profit de celle retenue sont tracées en hachures.
+C'est ce qui rend l'arbitrage vérifiable : sur un départ arrêté, un long palier de
+rétro ondulé et le front de couple sont tous deux « actifs », et retenir le mauvais
+ferait identifier le retard sur du bruit autour d'une constante.
+
+### Un retard peut être juste et mal assis
+
+Le retard est ré-estimé sur quatre sous-fenêtres de la plage retenue. Si leurs
+résultats s'étendent sur plus de `accord_blocs_max_ms`, il est annoncé
+**« faiblement identifié »** dans le tableau et le détail — il ne tient alors qu'à
+une partie du signal.
+
+C'est structurellement le cas d'un départ arrêté : seul le front porte l'information
+de synchronisation, la décroissance qui suit n'en porte aucune. La valeur reste le
+meilleur point de la corrélation, mais elle est moins bien établie qu'un retard tiré
+d'un cycle à variations continues, et la médiane du tableau ne doit pas les mélanger
+en silence.
+
 > Le bloc `essais:` de la configuration reste accepté : le renseigner impose un type
 > à chaque dossier et bascule l'outil en **mode déclaré**, où seul le traitement
 > correspondant est appliqué. Les deux modes partagent les mêmes calculs et
@@ -213,7 +231,7 @@ arrêt ne se voient que là. Ces figures sont aussi écrites en PNG
 | Non-linéarité | résidu maximal à la droite de régression | — |
 | Hystérésis | écart montée/descente au même couple de référence | appariement à tolérance donnée ; sens déduit de la variation de niveau |
 | Répétabilité | écart-type poolé **du résidu** à couple constant | raisonner sur le résidu retire la variation résiduelle de la référence |
-| Retard temporel | intercorrélation, pic affiné au sous-échantillon | passe-haut à phase nulle préalable ; recherche bornée ; seule la plage dynamique la plus longue est corrélée |
+| Retard temporel | intercorrélation, pic affiné au sous-échantillon | passe-haut à phase nulle préalable, **coupure relevée si la fenêtre est courte** (au moins cinq périodes dedans) ; corrélation normalisée par le **recouvrement réel** ; recherche bornée ; seule la plage dynamique **la plus informative** est corrélée, et le retard est déclaré fragile si ses sous-fenêtres ne s'accordent pas |
 | Sensibilité thermique | régression **multiple** `résidu = α·couple + β·T + γ` | β seul est l'effet thermique : sans cette séparation, l'erreur de gain serait comptée comme thermique, couple et température montant ensemble au fil d'un essai |
 | Dérive de zéro | écart entre relevés de repos de début et de fin | le repos doit tomber dans les premiers / derniers % de l'essai |
 | Redondance G−D | moyenne et écart-type de l'écart entre voies | valable seulement en ligne droite sans sollicitation différentielle |
