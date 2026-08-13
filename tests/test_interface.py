@@ -254,3 +254,96 @@ def test_l_interface_produit_les_memes_resultats_que_la_ligne_de_commande(tmp_pa
     a = depuis_interface.essai("1-Balayage Couple").regression
     b = depuis_cli.essai("1-Balayage Couple").regression
     assert (a.a, a.b, a.n) == (b.a, b.b, b.n)
+
+
+# ---------------------------------------------------------------------------
+# Explorateur de dossiers du poste
+# ---------------------------------------------------------------------------
+
+
+def test_l_explorateur_dit_pourquoi_il_est_indisponible():
+    """Un bouton qui échoue sans expliquer se lit comme une panne de l'outil."""
+    from amdec_correlation.interface import explorateur
+
+    ouvrable, motif = explorateur.disponible()
+    assert isinstance(ouvrable, bool)
+    if not ouvrable:
+        assert motif, "l'indisponibilité doit toujours être motivée"
+        with pytest.raises(explorateur.ExplorateurIndisponible):
+            explorateur.choisir_dossier()
+
+
+def test_l_explorateur_ne_renvoie_jamais_de_chemin_par_defaut(monkeypatch):
+    """Annuler doit donner « rien », jamais un dossier arbitraire.
+
+    Renvoyer le dossier de départ sur une annulation ferait analyser autre chose
+    que ce que l'utilisateur a demandé, sans qu'il s'en aperçoive.
+    """
+    import subprocess
+
+    from amdec_correlation.interface import explorateur
+
+    monkeypatch.setattr(explorateur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="  \n", stderr=""),
+    )
+    assert explorateur.choisir_dossier("/tmp") is None
+
+
+def test_l_explorateur_remonte_le_chemin_choisi(monkeypatch, tmp_path):
+    import subprocess
+
+    from amdec_correlation.interface import explorateur
+
+    monkeypatch.setattr(explorateur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            a[0], 0, stdout=f"{tmp_path}\n", stderr=""
+        ),
+    )
+    assert explorateur.choisir_dossier() == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Mémoire de la dernière utilisation
+# ---------------------------------------------------------------------------
+
+
+def test_la_configuration_memorisee_se_relit_a_l_identique(tmp_path):
+    """Le mapping ne doit pas être à redéclarer d'un lancement à l'autre."""
+    configuration = _construire(
+        racine=str(tmp_path), mode_comparaison="somme",
+        incertitude_reference_k1_Nm=2.5, canaux={}, canaux_communs=_canaux(),
+        essais={}, ligne_droite=True,
+        intercorrelation={"retard_max_ms": 500.0, "n_blocs_coherence": 6,
+                          "accord_blocs_max_ms": 33.0},
+    )
+    memoire = tmp_path / "derniere_configuration.yaml"
+    memoire.write_text(E.vers_yaml(configuration), encoding="utf-8")
+
+    relu = E.depuis_yaml(memoire)
+    scalaires = E.scalaires_depuis_dict(relu)
+    assert scalaires["mode"] == "somme"
+    assert scalaires["u_ref"] == 2.5 and scalaires["u_ref_connue"] is True
+    assert scalaires["ligne_droite"] is True
+    assert (relu["canaux"]["defaut"]["couple_mesure_gauche"]
+            == _canaux()["couple_mesure_gauche"])
+    # Les seuils de traitement font le voyage eux aussi.
+    assert scalaires["i::n_blocs_coherence"] == 6
+    assert scalaires["i::accord_blocs_max_ms"] == 33.0
+    # Et la configuration relue reste directement exploitable.
+    config = Config.depuis_dict(relu)
+    assert config.organisation_automatique is True
+    assert config.intercorrelation.accord_blocs_max_ms == 33.0
+
+
+def test_une_memoire_sans_mapping_ne_doit_pas_ecraser_une_memoire_qui_en_a():
+    """Un lancement avant l'inventaire ne doit pas effacer le travail de la veille."""
+    vide = {"canaux": {"defaut": {r: None for r in E.ORDRE_CANAUX}, "par_dossier": {}}}
+    plein = {"canaux": {"defaut": _canaux(), "par_dossier": {}}}
+    assert E.mapping_renseigne(plein) is True
+    assert E.mapping_renseigne(vide) is False
+    # Les canaux d'état seuls ne constituent pas un mapping.
+    assert E.mapping_renseigne({"canaux": {"defaut": {"etat": ["LED"]}}}) is False

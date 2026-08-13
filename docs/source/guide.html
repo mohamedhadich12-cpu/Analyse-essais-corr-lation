@@ -285,18 +285,46 @@ des valeurs fabriquées se mélangeraient à vos résultats.</p>
 
 <h3>Désigner les dossiers</h3>
 <p>
-Le dossier des acquisitions et celui de sortie se saisissent au clavier dans la barre latérale,
-ou se choisissent en <strong>parcourant le poste</strong> : dépliez <em>Parcourir</em> sous le champ,
-descendez dans l'arborescence, puis <em>Choisir ce dossier</em>. Les dossiers qui contiennent des
-acquisitions sont marqués d'un point — de quoi reconnaître le bon sans y descendre.
+Le dossier des acquisitions et celui de sortie se saisissent au clavier dans la barre latérale, ou
+se choisissent d'un clic sur <strong>Parcourir…</strong>, qui ouvre l'<strong>explorateur de fichiers
+du poste</strong> — celui de Windows, tel que vous l'utilisez partout ailleurs.
 </p>
 
 <div class="note">
-<p><span class="etiq">Pourquoi pas la boîte de dialogue habituelle ?</span> L'outil s'affiche dans
-un navigateur web, qui n'a pas le droit d'ouvrir l'explorateur de fichiers du système ni de lire
-un chemin local. Le navigateur de dossiers proposé ici est servi par le processus Python — lui
-tourne bien sur votre poste, et voit donc vos disques. Les fichiers ne sont pour autant jamais
-transmis nulle part : ils sont lus sur place, en lecture seule.</p>
+<p><span class="etiq">C'est Python qui ouvre la fenêtre, pas le navigateur.</span> Une page web n'a
+pas le droit d'ouvrir l'explorateur du système ni de lire un chemin local — aucune application web
+ne le peut. Mais le processus Python, lui, tourne sur votre poste : c'est donc lui qui affiche la
+boîte de dialogue, dans un sous-processus séparé pour que Tk ne perturbe jamais l'application. Les
+fichiers ne sont pour autant jamais transmis nulle part : ils sont lus sur place, en lecture
+seule.</p>
+</div>
+
+<div class="garde">
+<p>Si Tk n'est pas installé, ou si l'application est servie depuis une machine distante, le bouton
+se désactive <strong>en disant pourquoi</strong> plutôt que d'échouer en silence — et le chemin
+reste saisissable au clavier. Sous Windows, Tk est fourni avec Python : le cas ne se présente pas.</p>
+</div>
+
+<h3>La configuration est retenue d'une fois sur l'autre</h3>
+<p>
+Mapping des canaux, dossiers et hypothèses sont enregistrés au fil de la saisie dans
+<code>~/.amdec_correlation/derniere_configuration.yaml</code>, et repris au lancement suivant. Les
+libellés de canaux ne changent pas d'une campagne à l'autre : les redéclarer chaque fois serait une
+corvée sans contrepartie. Un bandeau signale la reprise, et un bouton <em>Oublier la mémoire</em>
+repart des valeurs par défaut.
+</p>
+
+<div class="note">
+<p><span class="etiq">Une configuration vide n'écrase jamais une mémoire renseignée.</span> Un
+lancement fait avant l'inventaire produit un mapping vide ; s'il était mémorisé tel quel, il
+effacerait le travail de la veille. Ce cas est explicitement écarté.</p>
+</div>
+
+<div class="astuce">
+<p><span class="etiq">Mémoire et fichier de projet sont deux choses.</span> La mémoire est
+automatique et propre à votre compte ; le fichier <code>config/correlation.yaml</code>, lui, est
+écrit à la demande par <em>Enregistrer la configuration</em> et se verse au dossier d'essai comme
+trace de ce qui a été fait.</p>
 </div>
 
 <h3>Le déroulé, en six onglets</h3>

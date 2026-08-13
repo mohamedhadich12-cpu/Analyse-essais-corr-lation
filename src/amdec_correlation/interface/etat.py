@@ -229,6 +229,23 @@ def depuis_yaml(chemin: str | Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
+def mapping_renseigne(brut: dict[str, Any]) -> bool:
+    """Vrai si la configuration associe au moins un canal réel à un rôle.
+
+    Sert de garde-fou à la mémoire de la dernière utilisation : un lancement
+    fait avant l'inventaire produit une configuration au mapping vide, qui ne
+    doit jamais écraser celle de la veille.
+
+    Les canaux d'état ne comptent pas : relevés sans interprétation, ils ne
+    constituent pas à eux seuls un mapping exploitable.
+    """
+    canaux = brut.get("canaux") or {}
+    blocs = [canaux.get("defaut") or {}, *(canaux.get("par_dossier") or {}).values()]
+    return any(
+        valeur for bloc in blocs for role, valeur in bloc.items() if role != "etat"
+    )
+
+
 def etat_depuis_dict(brut: dict[str, Any]) -> dict[str, Any]:
     """Extrait de la configuration l'état des widgets (canaux et essais).
 

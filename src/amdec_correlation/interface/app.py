@@ -17,9 +17,7 @@ Lancement :  python scripts/03_interface.py
 from __future__ import annotations
 
 import io
-import itertools
 import math
-import os
 import sys
 import zipfile
 from pathlib import Path
@@ -40,6 +38,7 @@ from amdec_correlation import rapport as R  # noqa: E402
 from amdec_correlation import zones as Zn  # noqa: E402
 from amdec_correlation.config import MODES_COMPARAISON  # noqa: E402
 from amdec_correlation.interface import etat as E  # noqa: E402
+from amdec_correlation.interface import explorateur  # noqa: E402
 
 # Palette partagée avec les figures : l'écran et les PNG se lisent comme un seul
 # système visuel.
@@ -50,6 +49,13 @@ ATTENTION = "#fab219"
 CRITIQUE = "#d03b3b"
 
 FICHIER_CONFIG = _RACINE_PROJET / "config" / "correlation.yaml"
+
+# Mémoire de la dernière utilisation. Rangée dans le profil de l'utilisateur, et
+# non dans le projet : elle doit survivre à une mise à jour du dépôt, et deux
+# comptes du même poste ne doivent pas se marcher dessus. Le mapping des canaux
+# est stable d'une campagne à l'autre — le redéclarer à chaque lancement est la
+# corvée que cette mémoire supprime.
+FICHIER_MEMOIRE = Path.home() / ".amdec_correlation" / "derniere_configuration.yaml"
 
 st.set_page_config(
     page_title="Corrélation couple — banc GMP",
@@ -93,6 +99,7 @@ DEFAUTS: dict[str, object] = {
     "i::retard_max_ms": 500.0, "i::passe_haut_Hz": 0.2,
     "i::seuil_activite_pc_pe": 2.0, "i::fenetre_activite_s": 1.0,
     "i::duree_comblement_s": 5.0,
+    "i::n_blocs_coherence": 4, "i::accord_blocs_max_ms": 20.0,
     "z::duree_fenetre_s": 5.0, "z::seuil_couple_ref_pc_pe": 1.0,
     "z::seuil_regime": 20.0, "z::fraction_bord": 0.25,
     "t::amplitude_min_C": 5.0,
@@ -166,131 +173,42 @@ def _case(libelle: str, cle: str, defaut: bool, aide: str = "") -> bool:
     return valeur
 
 
-def _points_de_depart() -> list[Path]:
-    """Racines de navigation : dossier utilisateur, puis volumes de la machine.
+def _choisir_dossier(cle: str, libelle: str) -> None:
+    """Bouton unique : ouvre l'explorateur du poste et retient le dossier choisi.
 
-    Sous Windows on énumère les lettres de lecteur — un poste d'essai range
-    couramment les acquisitions sur un disque autre que le système. Sous
-    Linux/macOS, la racine unique suffit.
+    Streamlit s'affiche dans un navigateur web, qui n'a pas le droit d'ouvrir
+    l'explorateur du système. C'est donc le processus Python — qui, lui, tourne
+    sur le poste — qui l'ouvre, dans un sous-processus (cf. `explorateur`).
+
+    Le chemin retenu n'est pas écrit directement dans l'état du champ de saisie :
+    Streamlit interdit de modifier la clé d'un widget déjà instancié dans la même
+    exécution, et le clic a nécessairement lieu après le rendu du champ. La
+    valeur transite par une clé en attente, appliquée en tête de l'exécution
+    suivante.
     """
-    depart = [Path.home()]
-    if os.name == "nt":
-        depart += [
-            Path(f"{lettre}:\\")
-            for lettre in "CDEFGHIJKLMNOPQRSTUVWXYZ"
-            if Path(f"{lettre}:\\").is_dir()
-        ]
-    else:
-        depart.append(Path("/"))
-    return [d for d in depart if d.is_dir()]
-
-
-def _dossier_ou_defaut(chemin: str) -> Path:
-    """Chemin de départ de la navigation, toujours absolu et existant.
-
-    Attention à `Path("")` : il vaut `Path(".")`, dont `is_dir()` est vrai. Sans
-    ce garde-fou, un champ vide ferait démarrer la navigation dans le dossier
-    courant du processus, en chemins relatifs — et le dossier choisi ne voudrait
-    plus rien dire une fois l'application relancée d'ailleurs.
-    """
-    if chemin and Path(chemin).is_dir():
-        return Path(chemin).resolve()
-    return _points_de_depart()[0]
-
-
-def _parcourir(cle: str, libelle: str, creer: bool = False) -> None:
-    """Navigateur de dossiers, dans l'application.
-
-    Streamlit s'exécute dans un navigateur web : il n'a pas accès à la boîte de
-    dialogue « Parcourir » du système. On en propose donc une, servie par le
-    processus Python — qui, lui, tourne bien sur le poste de l'utilisateur.
-
-    Le dossier retenu n'est pas écrit directement dans l'état du champ de
-    saisie : Streamlit interdit de modifier la clé d'un widget déjà instancié
-    dans la même exécution. On dépose la valeur en attente, et l'en-tête du
-    script l'applique au tout début de l'exécution suivante — avant que le champ
-    n'existe (cf. `_appliquer_dossiers_choisis`).
-
-    `creer` autorise la saisie d'un sous-dossier qui n'existe pas encore : c'est
-    le cas du dossier de sortie, qui sera créé à l'écriture du rapport.
-    """
-    cle_nav = f"nav::{cle}"
-    if cle_nav not in st.session_state:
-        st.session_state[cle_nav] = str(_dossier_ou_defaut(st.session_state.get(cle, "")))
-
-    with st.expander(f"Parcourir — {libelle}", expanded=False):
-        ici = Path(st.session_state[cle_nav])
-        # Le chemin courant en clair : dans une barre latérale étroite, un
-        # chemin long doit pouvoir se replier sur plusieurs lignes.
-        st.caption(str(ici))
-
-        # Empilement plutôt que colonnes : la barre latérale est trop étroite
-        # pour deux boutons côte à côte, dont les libellés se couperaient.
-        if st.button("Choisir ce dossier", key=f"{cle}::choisir",
-                     type="primary", use_container_width=True):
-            st.session_state[f"choisi::{cle}"] = str(ici)
-            st.rerun()
-        if ici.parent != ici and st.button(
-            "Remonter d'un niveau", key=f"{cle}::parent", use_container_width=True
-        ):
-            st.session_state[cle_nav] = str(ici.parent)
-            st.rerun()
-
-        # Repartir de la saisie : le navigateur ne se recale pas tout seul sur le
-        # champ, sinon il annulerait la navigation en cours à chaque exécution.
-        saisi = st.session_state.get(cle, "")
-        if saisi and Path(saisi).is_dir() and Path(saisi).resolve() != ici:
-            if st.button("Aller au dossier saisi", key=f"{cle}::saisi",
-                         use_container_width=True):
-                st.session_state[cle_nav] = str(Path(saisi).resolve())
-                st.rerun()
-
-        depart = _points_de_depart()
-        raccourcis = st.columns(min(len(depart), 4))
-        for colonne, racine_depart in zip(itertools.cycle(raccourcis), depart):
-            with colonne:
-                libelle_court = (
-                    "Accueil" if racine_depart == Path.home()
-                    else (racine_depart.drive or str(racine_depart))
-                )
-                if st.button(libelle_court, key=f"{cle}::depart::{racine_depart}",
-                             use_container_width=True):
-                    st.session_state[cle_nav] = str(racine_depart)
-                    st.rerun()
-
+    ouvrable, motif = explorateur.disponible()
+    if st.button(
+        "Parcourir…", key=f"{cle}::parcourir", use_container_width=True,
+        disabled=not ouvrable,
+        help=(f"Ouvre l'explorateur de fichiers du poste pour choisir le dossier "
+              f"{libelle}." if ouvrable else f"Explorateur indisponible : {motif}"),
+    ):
         try:
-            sous_dossiers = sorted(
-                (p for p in ici.iterdir() if p.is_dir() and not p.name.startswith(".")),
-                key=lambda p: p.name.lower(),
-            )
-        except PermissionError:
-            st.warning("Dossier non lisible avec les droits actuels.")
-            return
-
-        acquisitions = [f for f in lecteurs.lister_fichiers(ici) if f.parent == ici]
-        if acquisitions:
-            st.success(f"{len(acquisitions)} acquisition(s) directement dans ce dossier.")
-        elif not sous_dossiers:
-            st.info("Dossier vide.")
-
-        for sous in sous_dossiers[:60]:
-            # La marque annonce que le dossier contient des acquisitions, avant
-            # d'y descendre : sans elle, on navigue à l'aveugle.
-            porteur = bool(lecteurs.lister_fichiers(sous, 1))
-            if st.button(f"{sous.name}{'  ●' if porteur else ''}",
-                         key=f"{cle}::vers::{sous.name}", use_container_width=True,
-                         help="Contient des acquisitions." if porteur else None):
-                st.session_state[cle_nav] = str(sous)
+            with st.spinner("Fenêtre de sélection ouverte sur le bureau…"):
+                choisi = explorateur.choisir_dossier(
+                    st.session_state.get(cle, ""),
+                    titre=f"Corrélation couple — dossier {libelle}",
+                )
+        except explorateur.ExplorateurIndisponible as exc:
+            st.error(f"Explorateur indisponible : {exc}. Saisis le chemin à la main.")
+        else:
+            if choisi:
+                st.session_state[f"choisi::{cle}"] = choisi
                 st.rerun()
-        if len(sous_dossiers) > 60:
-            st.caption(f"… et {len(sous_dossiers) - 60} autres. Saisis le chemin directement.")
-
-        if creer:
-            nouveau = st.text_input("Créer un sous-dossier ici", key=f"{cle}::nouveau",
-                                    placeholder="sortie")
-            if nouveau and st.button("Créer et choisir", key=f"{cle}::creer"):
-                st.session_state[f"choisi::{cle}"] = str(ici / nouveau)
-                st.rerun()
+    if not ouvrable:
+        # Le motif complet est dans l'infobulle du bouton : répété ici en clair,
+        # il occuperait à lui seul la moitié de la barre latérale.
+        st.caption("Explorateur indisponible — saisis le chemin à la main.")
 
 
 def _pastille(ok: bool | None, texte: str) -> str:
@@ -514,8 +432,14 @@ def _charger_configuration(chemin: Path) -> None:
     """Repeuple l'écran depuis un YAML enregistré."""
     brut = E.depuis_yaml(chemin)
     for cle, valeur in E.scalaires_depuis_dict(brut).items():
-        if cle in DEFAUTS:
-            st.session_state[cle] = valeur
+        if cle not in DEFAUTS:
+            continue
+        # `null` en YAML — un passe-haut désactivé, par exemple — ne peut pas
+        # être posé tel quel dans un champ numérique : Streamlit lèverait. On
+        # retombe sur la valeur qui, dans l'interface, désigne la désactivation.
+        if valeur is None and isinstance(DEFAUTS[cle], (int, float)):
+            valeur = type(DEFAUTS[cle])(0)
+        st.session_state[cle] = valeur
     etat = E.etat_depuis_dict(brut)
     st.session_state["canaux"] = etat["canaux"]
     defaut = (brut.get("canaux") or {}).get("defaut") or {}
@@ -537,6 +461,65 @@ def _charger_configuration(chemin: Path) -> None:
                 st.session_state[f"canal::{dossier}::{role}"] = valeur or E.CANAL_ABSENT
 
 
+def _restaurer_memoire() -> None:
+    """Repose la configuration de la dernière utilisation, une fois par session.
+
+    Appelée AVANT le rendu des widgets : Streamlit refuse qu'on modifie la clé
+    d'un widget déjà instancié.
+
+    Un échec de lecture ne doit jamais empêcher l'outil de démarrer — la mémoire
+    est un confort. Le motif est conservé pour être affiché, plutôt que la panne
+    passée sous silence.
+    """
+    if st.session_state.get("memoire::lue"):
+        return
+    st.session_state["memoire::lue"] = True
+    if not FICHIER_MEMOIRE.is_file():
+        return
+    try:
+        _charger_configuration(FICHIER_MEMOIRE)
+        st.session_state["memoire::restauree"] = True
+    except Exception as exc:
+        st.session_state["memoire::erreur"] = str(exc)
+
+
+def _memoriser_configuration() -> None:
+    """Retient la configuration courante pour le prochain lancement.
+
+    Écrite en fin d'exécution, sans que l'utilisateur ait à y penser : le mapping
+    n'a aucune raison de changer d'une campagne à l'autre, et le redemander à
+    chaque lancement serait une corvée sans contrepartie.
+
+    Deux garde-fous :
+      * on n'écrit que si le contenu a changé, pour ne pas toucher le disque à
+        chaque interaction — Streamlit réexécute le script en permanence ;
+      * on n'écrase jamais une mémoire qui contient un mapping par une
+        configuration qui n'en a pas. Sans cela, un simple lancement avant
+        l'inventaire effacerait le travail de la veille.
+    """
+    configuration = _configuration_courante()
+    if not configuration:
+        return
+    try:
+        texte = E.vers_yaml(configuration)
+        ancien = (
+            FICHIER_MEMOIRE.read_text(encoding="utf-8")
+            if FICHIER_MEMOIRE.is_file() else ""
+        )
+        if texte == ancien:
+            return
+        if ancien and not E.mapping_renseigne(configuration):
+            if E.mapping_renseigne(E.depuis_yaml(FICHIER_MEMOIRE)):
+                return
+        FICHIER_MEMOIRE.parent.mkdir(parents=True, exist_ok=True)
+        FICHIER_MEMOIRE.write_text(texte, encoding="utf-8")
+    except Exception as exc:
+        st.session_state["memoire::erreur"] = str(exc)
+
+
+_restaurer_memoire()
+
+
 # ---------------------------------------------------------------------------
 # Barre latérale
 # ---------------------------------------------------------------------------
@@ -553,15 +536,16 @@ with st.sidebar:
         "a, sont parcourus aussi. Rien n'est envoyé hors du poste : tout s'exécute "
         "en local, en lecture seule.",
     )
-    _parcourir("racine", "acquisitions")
+    _choisir_dossier("racine", "des acquisitions")
     racine = st.session_state["racine"]
     racine_ok = bool(racine) and Path(racine).is_dir()
     if racine and not racine_ok:
         st.error("Dossier introuvable.")
 
     st.text_input("Dossier de sortie", key="dossier_sortie",
-                  help="Rapport Markdown et figures PNG y seront écrits.")
-    _parcourir("dossier_sortie", "sortie", creer=True)
+                  help="Rapport Markdown et figures PNG y seront écrits. "
+                  "Il est créé s'il n'existe pas encore.")
+    _choisir_dossier("dossier_sortie", "de sortie")
 
     st.divider()
     st.markdown("**Chaîne de mesure**")
@@ -587,9 +571,32 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("**Configuration enregistrée**")
-    st.caption(f"`{FICHIER_CONFIG.relative_to(_RACINE_PROJET)}`")
-    if FICHIER_CONFIG.is_file() and st.button("Recharger", use_container_width=True):
+    st.markdown("**Configuration**")
+    if st.session_state.get("memoire::restauree"):
+        st.caption(
+            "Reprise de la dernière utilisation : mapping des canaux, dossiers et "
+            "hypothèses. Modifie ce que tu veux, tout est retenu à nouveau."
+        )
+    elif FICHIER_MEMOIRE.is_file():
+        st.caption("Mémoire présente, sera reprise au prochain lancement.")
+    else:
+        st.caption("La configuration sera retenue pour le prochain lancement.")
+    if st.session_state.get("memoire::erreur"):
+        st.warning(f"Mémoire indisponible : {st.session_state['memoire::erreur']}")
+
+    if FICHIER_MEMOIRE.is_file() and st.button(
+        "Oublier la mémoire", use_container_width=True,
+        help=f"Supprime {FICHIER_MEMOIRE}. Le prochain lancement repartira des "
+        "valeurs par défaut.",
+    ):
+        FICHIER_MEMOIRE.unlink(missing_ok=True)
+        st.session_state.pop("memoire::restauree", None)
+        st.success("Mémoire effacée.")
+        st.rerun()
+
+    st.caption(f"Fichier de projet : `{FICHIER_CONFIG.relative_to(_RACINE_PROJET)}`")
+    if FICHIER_CONFIG.is_file() and st.button("Recharger ce fichier",
+                                              use_container_width=True):
         _charger_configuration(FICHIER_CONFIG)
         st.success("Configuration rechargée.")
         st.rerun()
@@ -1092,6 +1099,21 @@ with onglets[HYPOTHESES]:
                         key="i::fenetre_activite_s")
         st.number_input("Comblement des interruptions (s)", 0.0, 60.0, step=1.0,
                         key="i::duree_comblement_s")
+        st.number_input(
+            "Sous-fenêtres de contrôle du retard", 2, 10, step=1,
+            key="i::n_blocs_coherence",
+            help="Le retard est ré-estimé sur autant de sous-fenêtres égales. "
+            "Moins, la mesure est trop bruitée pour trancher ; plus, chaque "
+            "sous-fenêtre devient trop courte et des essais exploitables seraient "
+            "signalés à tort.",
+        )
+        st.number_input(
+            "Accord exigé entre sous-fenêtres (ms)", 1.0, 500.0, step=5.0,
+            key="i::accord_blocs_max_ms",
+            help="Au-delà de cette étendue, le retard est annoncé « faiblement "
+            "identifié » : il ne tient qu'à une partie du signal. Cas typique du "
+            "départ arrêté, où seul le front porte la synchronisation.",
+        )
         st.markdown("**Sensibilité thermique**")
         st.number_input("Excursion thermique minimale (°C)", 0.5, 100.0, step=1.0,
                         key="t::amplitude_min_C")
@@ -1243,3 +1265,13 @@ with onglets[ANALYSE]:
                     use_container_width=True,
                 )
             st.caption(f"Écrit sur le poste : `{st.session_state.get('rapport_chemin', '')}`")
+
+
+# ---------------------------------------------------------------------------
+# Mémoire de la session
+# ---------------------------------------------------------------------------
+
+# En dernier, quand tous les widgets ont été rendus et que `session_state`
+# reflète l'écran tel qu'il est : la configuration retenue est exactement celle
+# que l'utilisateur voit.
+_memoriser_configuration()

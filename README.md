@@ -83,12 +83,23 @@ chiffre issu de ces fichiers ne doit figurer dans le rapport.
 python scripts/03_interface.py
 ```
 
-Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Le dossier des
-acquisitions et celui de sortie se saisissent au clavier **ou se choisissent en
-parcourant le poste** : Streamlit s'exécutant dans un navigateur web, il n'a pas
-accès à la boîte de dialogue du système, l'application en propose donc une, servie
-par le processus Python — qui, lui, tourne bien sur la machine. Les dossiers
-contenant des acquisitions y sont marqués d'un point.
+Une page s'ouvre dans le navigateur, sur `localhost` uniquement.
+
+**Choisir les dossiers.** Un bouton **Parcourir…** ouvre l'explorateur de fichiers du
+poste. Le navigateur web n'a pas le droit de l'ouvrir lui-même : c'est le processus
+Python — qui tourne sur votre machine — qui l'affiche, dans un sous-processus séparé
+pour que Tk ne perturbe jamais Streamlit. Les fichiers ne sont pour autant jamais
+transmis : ils sont lus sur place, en lecture seule. Si Tk n'est pas installé ou si
+l'application est servie depuis une machine distante, le bouton se désactive en
+disant pourquoi, et le chemin reste saisissable au clavier.
+
+**La configuration est retenue.** Mapping des canaux, dossiers et hypothèses sont
+enregistrés dans `~/.amdec_correlation/derniere_configuration.yaml` à chaque
+modification, et repris au lancement suivant : les libellés de canaux ne changent pas
+d'une campagne à l'autre, les redéclarer chaque fois serait une corvée sans
+contrepartie. Un bouton *Oublier la mémoire* repart des valeurs par défaut. Une
+configuration vide n'écrase jamais une mémoire qui contient un mapping — un lancement
+fait avant l'inventaire ne peut donc pas effacer le travail de la veille.
 
 Six onglets suivent le déroulé de l'analyse :
 
