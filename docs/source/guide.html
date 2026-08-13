@@ -407,6 +407,11 @@ peut pas faire à votre place.
   <li><strong>Plage de temps</strong> : à l'échelle d'un cycle entier, quelques dizaines de
       millisecondes sont invisibles. Resserrer la plage est le seul moyen de voir un détail
       rapide.</li>
+  <li><strong>Zones détectées à superposer</strong> : les zones de l'acquisition affichée se
+      posent en aplats de fond sur le tracé, <strong>famille par famille</strong>. C'est le moyen
+      de confronter la détection à n'importe quel canal — les plages de repos au régime, par
+      exemple, seul contrôle qui ne dépende pas du couple. Les paliers sont décochés par défaut :
+      un balayage en compte des dizaines, et les superposer tous rendrait le tracé illisible.</li>
 </ul>
 
 <div class="note">
@@ -488,7 +493,7 @@ C'est un relevé à vérifier, pas une saisie.
 <h4>Où se trouvent ces zones</h4>
 <p>
 Sous le tableau, <strong>une figure par acquisition</strong> pose chaque zone sur le signal, en
-aplat de fond et par type. Le tableau dit <em>combien</em>, la figure dit <em>où</em> : un palier
+aplat de fond et par type, chaque famille pouvant être masquée pour dégager les autres. Le tableau dit <em>combien</em>, la figure dit <em>où</em> : un palier
 posé sur un transitoire, une plage dynamique qui déborde sur un arrêt ne se voient que là. Les
 mêmes figures sont écrites en PNG dans le dossier de sortie au moment de l'analyse.
 </p>

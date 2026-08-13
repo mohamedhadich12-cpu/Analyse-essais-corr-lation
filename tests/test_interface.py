@@ -347,3 +347,31 @@ def test_une_memoire_sans_mapping_ne_doit_pas_ecraser_une_memoire_qui_en_a():
     assert E.mapping_renseigne(vide) is False
     # Les canaux d'état seuls ne constituent pas un mapping.
     assert E.mapping_renseigne({"canaux": {"defaut": {"etat": ["LED"]}}}) is False
+
+
+def test_les_zones_suivent_la_decimation_du_trace():
+    """Les indices de zone portent sur le signal plein, le tracé est décimé.
+
+    Les passer tels quels décalerait les aplats — d'autant plus que le fichier
+    est long. C'est invisible sur une figure : seul un test l'attrape.
+    """
+    from amdec_correlation.zones import ZonesFichier, sur_grille_decimee
+
+    zones = ZonesFichier(
+        chemin=Path("essai.mf4"), duree_s=100.0,
+        plage_dynamique=(2000, 6000),
+        plages_repos=[(0, 400), (19000, 20000)],
+        plages_ecartees=[(8000, 9000)],
+    )
+    ramenees = sur_grille_decimee(zones, pas=10)
+    assert ramenees.plage_dynamique == (200, 600)
+    assert ramenees.plages_repos == [(0, 40), (1900, 2000)]
+    assert ramenees.plages_ecartees == [(800, 900)]
+    # L'original n'est pas modifié : la détection reste la référence.
+    assert zones.plage_dynamique == (2000, 6000)
+    # Une plage plus courte que le pas garde au moins un point, sinon elle
+    # disparaîtrait du tracé sans que rien ne le signale.
+    courte = ZonesFichier(chemin=Path("x.mf4"), duree_s=1.0, plages_repos=[(5, 9)])
+    assert sur_grille_decimee(courte, pas=100).plages_repos == [(0, 1)]
+    # Pas de décimation : l'objet passe tel quel.
+    assert sur_grille_decimee(zones, pas=1) is zones

@@ -115,7 +115,7 @@ st.session_state.setdefault("canaux_communs", {})
 st.session_state.setdefault("canaux", {})
 st.session_state.setdefault("campagne", None)
 st.session_state.setdefault("zones", [])
-st.session_state.setdefault("apercus_zones", {})
+st.session_state.setdefault("signaux_zones", {})
 
 # Un dossier retenu dans le navigateur est appliqué ICI, avant que le champ de
 # saisie correspondant n'existe : Streamlit refuse qu'on modifie la clé d'un
@@ -138,19 +138,37 @@ def _section(prefixe: str) -> dict[str, object]:
 
 
 def _selectbox_canal(libelle: str, cle: str, options: list[str]) -> None:
-    """Liste déroulante de canal, robuste au changement de la liste d'options.
+    """Liste déroulante de canal, dont l'état applicatif est tenu explicitement.
 
-    Si la valeur mémorisée n'existe plus (nouvel inventaire, autre dossier),
-    on retombe sur « absent » plutôt que de laisser Streamlit lever.
+    Deux pièges, et le second est coûteux :
+
+    1. Si la valeur mémorisée n'existe plus (nouvel inventaire, autre dossier),
+       on retombe sur « absent » plutôt que de laisser Streamlit lever.
+    2. Les listes de l'onglet Canaux n'apparaissent qu'une fois l'inventaire
+       fait, donc lors d'un rerun **ultérieur** à celui qui a posé la valeur —
+       c'est le cas de la mémoire, restaurée au tout premier passage. Or un
+       widget rendu pour la première fois n'adopte pas une clé pré-alimentée :
+       il s'initialise sur son propre défaut, « absent », et l'écrase au passage
+       suivant. Le mapping était ainsi **silencieusement perdu**, et l'analyse
+       refusait tous les fichiers faute de canal.
+
+    D'où la même discipline que `_case` : le widget porte une clé distincte,
+    reçoit sa valeur par `index`, et la recopie dans l'état applicatif.
     """
-    if st.session_state.get(cle) not in options:
-        st.session_state[cle] = E.CANAL_ABSENT
-    st.selectbox(libelle, options, key=cle)
+    courant = st.session_state.get(cle, E.CANAL_ABSENT)
+    if courant not in options:
+        courant = E.CANAL_ABSENT
+    choix = st.selectbox(
+        libelle, options, index=options.index(courant), key=f"w::{cle}"
+    )
+    st.session_state[cle] = choix
 
 
 def _multiselect_etat(libelle: str, cle: str, options: list[str]) -> None:
-    st.session_state[cle] = [v for v in st.session_state.get(cle, []) if v in options]
-    st.multiselect(libelle, options, key=cle)
+    """Canaux d'état, même discipline que `_selectbox_canal` (cf. son docstring)."""
+    courant = [v for v in st.session_state.get(cle, []) if v in options]
+    choix = st.multiselect(libelle, options, default=courant, key=f"w::{cle}")
+    st.session_state[cle] = list(choix)
 
 
 def _case(libelle: str, cle: str, defaut: bool, aide: str = "") -> bool:
@@ -306,17 +324,19 @@ def canaux_du_fichier(chemin: str) -> dict[str, str]:
     }
 
 
-def detecter_zones(cfg) -> tuple[list, dict[str, bytes]]:
+def detecter_zones(cfg) -> tuple[list, dict[str, tuple]]:
     """Détecte les zones de chaque acquisition, sans lancer l'analyse complète.
 
     Permet de vérifier ce que l'outil a trouvé AVANT de calculer quoi que ce
     soit — c'est ce qui rend le mode automatique auditable.
 
-    Renvoie aussi une figure par acquisition, en PNG. On la produit ici, pendant
-    que le signal est chargé : le conserver en mémoire pour tracer plus tard
-    coûterait bien davantage qu'une image.
+    Renvoie aussi, par acquisition, les signaux **décimés** nécessaires au tracé.
+    Les garder plutôt que de pré-calculer une image permet de re-tracer à la
+    demande quand l'utilisateur change les familles de zones affichées ; décimés
+    à `MAX_POINTS_TRACES`, ils coûtent une centaine de kilo-octets par fichier —
+    deux points ne peuvent de toute façon pas occuper le même pixel.
     """
-    resultats, apercus = [], {}
+    resultats, signaux = [], {}
     mapping = cfg.canaux_pour("")
     for fichier in lecteurs.lister_fichiers(cfg.racine):
         try:
@@ -326,22 +346,36 @@ def detecter_zones(cfg) -> tuple[list, dict[str, bytes]]:
             continue
         zones = Zn.detecter(donnees, cfg)
         resultats.append(zones)
-
-        figure = graphiques.figure_zones(
-            donnees.t, donnees.reference, donnees.mesure, zones, cfg.pleine_echelle_Nm,
-            titre=f"{fichier.name} — zones détectées",
-            decimation=max(1, int(np.ceil(donnees.t.size / MAX_POINTS_TRACES))),
+        pas = max(1, int(np.ceil(donnees.t.size / MAX_POINTS_TRACES)))
+        signaux[fichier.name] = (
+            donnees.t[::pas].copy(),
+            donnees.reference[::pas].copy(),
+            donnees.mesure[::pas].copy(),
+            pas,
         )
-        tampon = io.BytesIO()
-        figure.savefig(tampon, format="png", dpi=110, bbox_inches="tight")
-        plt.close(figure)
-        apercus[fichier.name] = tampon.getvalue()
-    return resultats, apercus
+    return resultats, signaux
+
+
+def figure_zones_png(nom: str, zones, signaux: dict, pe: float,
+                     types: list[str] | None = None) -> bytes | None:
+    """Rend la figure des zones d'une acquisition, selon le filtre courant."""
+    if nom not in signaux:
+        return None
+    t, reference, mesure, pas = signaux[nom]
+    figure = graphiques.figure_zones(
+        t, reference, mesure, Zn.sur_grille_decimee(zones, pas), pe,
+        titre=f"{nom} — zones détectées", types=types,
+    )
+    tampon = io.BytesIO()
+    figure.savefig(tampon, format="png", dpi=110, bbox_inches="tight")
+    plt.close(figure)
+    return tampon.getvalue()
 
 
 def tracer_visualisation(
     fichier: Path, noms: list[str], catalogue: dict[str, str],
     derivees: list[tuple[str, str, str]],
+    zones=None, types_zones: list[str] | None = None,
 ) -> None:
     """Charge les canaux demandés et les trace, groupés par unité.
 
@@ -349,6 +383,11 @@ def tracer_visualisation(
     Elles rejoignent le même tracé que les canaux bruts, et se rangent dans le
     panneau de leur unité : deux sommes en N·m se comparent donc directement,
     sur la même échelle — ce qui est tout l'intérêt d'en tracer plusieurs.
+
+    `zones` superpose les zones détectées pour CE fichier, restreintes aux
+    familles de `types_zones` : confronter la détection à n'importe quel canal —
+    les plages de repos au régime, par exemple — est le seul contrôle qui ne
+    dépende pas du couple.
     """
     try:
         with st.spinner("Lecture du fichier (lecture seule)…"):
@@ -395,6 +434,8 @@ def tracer_visualisation(
         unites,
         titre=f"{fichier.name}  —  {fin - debut:.1f} s affichées",
         decimation=pas,
+        zones=zones,
+        types_zones=types_zones,
     )
     st.pyplot(figure, use_container_width=True)
 
@@ -834,6 +875,49 @@ with onglets[VISUALISATION]:
                 ))
                 total = len(selection) + len(derivees)
 
+                # --- zones détectées à superposer -------------------------
+                zones_fichier = next(
+                    (z for z in st.session_state["zones"]
+                     if z.chemin.name == fichier.name and z.erreur is None),
+                    None,
+                )
+                st.markdown("**Zones détectées à superposer**")
+                if zones_fichier is None:
+                    types_zones = []
+                    st.caption(
+                        "Lance « Détecter les zones » (onglet 4) pour pouvoir les "
+                        "superposer ici."
+                    )
+                else:
+                    # Seules les familles réellement présentes sont proposées :
+                    # offrir « paliers — descente » sur un cycle qui n'en a pas
+                    # ferait douter du réglage plutôt que du contenu.
+                    presentes = zones_fichier.familles()
+                    if not presentes:
+                        types_zones = []
+                        st.caption("Aucune zone détectée dans cette acquisition.")
+                    else:
+                        defaut = [c for c in graphiques.TYPES_ZONES_DEFAUT
+                                  if c in presentes]
+                        choix_zones = st.multiselect(
+                            "Familles à afficher",
+                            [graphiques.TYPES_ZONES[c] for c in presentes],
+                            default=[graphiques.TYPES_ZONES[c] for c in defaut],
+                            key=f"vue::zones::{fichier.name}",
+                            help="Les paliers sont décochés par défaut : un balayage "
+                            "en compte des dizaines, et les superposer tous rend le "
+                            "tracé illisible.",
+                        )
+                        inverse = {v: k for k, v in graphiques.TYPES_ZONES.items()}
+                        types_zones = [inverse[libelle] for libelle in choix_zones]
+                        if not types_zones:
+                            # Un sélecteur vide se lit comme une panne : on dit
+                            # que le tracé est nu, et que c'est volontaire.
+                            st.caption(
+                                "Aucune zone superposée — choisis une famille "
+                                "ci-dessus pour la voir sur le tracé."
+                            )
+
                 if not a_tracer:
                     st.info("Sélectionne au moins un canal.")
                 elif total > graphiques.MAX_COURBES:
@@ -843,7 +927,11 @@ with onglets[VISUALISATION]:
                         "maximum. Au-delà, deux courbes cessent d'être distinguables."
                     )
                 else:
-                    tracer_visualisation(fichier, a_tracer, catalogue, derivees)
+                    tracer_visualisation(
+                        fichier, a_tracer, catalogue, derivees,
+                        zones=zones_fichier if types_zones else None,
+                        types_zones=types_zones,
+                    )
 
 with onglets[CANAUX]:
     st.subheader("Mapping des canaux")
@@ -942,9 +1030,9 @@ with onglets[ZONES]:
             else:
                 try:
                     with st.spinner("Lecture des acquisitions (lecture seule)…"):
-                        trouvees, apercus = detecter_zones(cfg)
+                        trouvees, signaux_detectes = detecter_zones(cfg)
                     st.session_state["zones"] = trouvees
-                    st.session_state["apercus_zones"] = apercus
+                    st.session_state["signaux_zones"] = signaux_detectes
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Détection impossible : {exc}")
@@ -996,8 +1084,8 @@ with onglets[ZONES]:
                 if z.erreur:
                     st.error(f"`{z.chemin.name}` : {z.erreur}")
 
-            apercus = st.session_state.get("apercus_zones") or {}
-            if apercus:
+            signaux = st.session_state.get("signaux_zones") or {}
+            if signaux:
                 st.divider()
                 with st.expander("Où se trouvent ces zones", expanded=True):
                     st.markdown(
@@ -1011,24 +1099,55 @@ with onglets[ZONES]:
                     )
                     st.write("")
                     lisibles = [z for z in zones if z.erreur is None]
-                    choix_figure = st.selectbox(
-                        "Acquisition", [z.chemin.name for z in lisibles],
-                        key="zones::apercu",
-                        help="Une figure par acquisition. Elles sont aussi écrites en PNG "
-                        "dans le dossier de sortie au moment de l'analyse.",
-                    )
-                    if choix_figure in apercus:
-                        st.image(apercus[choix_figure], use_container_width=True)
-                        st.download_button(
-                            "Télécharger cette figure (.png)", data=apercus[choix_figure],
-                            file_name=f"zones_{Path(choix_figure).stem}.png",
-                            mime="image/png",
+                    g, d = st.columns([1, 1])
+                    with g:
+                        choix_figure = st.selectbox(
+                            "Acquisition", [z.chemin.name for z in lisibles],
+                            key="zones::apercu",
+                            help="Les figures sont aussi écrites en PNG dans le dossier "
+                            "de sortie au moment de l'analyse — toutes familles affichées.",
                         )
+                    zone_choisie = next(
+                        (z for z in lisibles if z.chemin.name == choix_figure), None
+                    )
+                    presentes = zone_choisie.familles() if zone_choisie else []
+                    with d:
+                        libelles = st.multiselect(
+                            "Familles à afficher",
+                            [graphiques.TYPES_ZONES[c] for c in presentes],
+                            default=[graphiques.TYPES_ZONES[c] for c in presentes],
+                            key="zones::familles",
+                            help="Tout est affiché par défaut : c'est l'objet de cet "
+                            "onglet. Décoche les paliers si leur nombre masque le reste.",
+                        )
+                    inverse = {v: k for k, v in graphiques.TYPES_ZONES.items()}
+                    familles = [inverse[x] for x in libelles]
+
+                    if zone_choisie is not None:
+                        image = figure_zones_png(
+                            choix_figure, zone_choisie, signaux,
+                            float(st.session_state["pe"]), familles,
+                        )
+                        if image:
+                            st.image(image, use_container_width=True)
+                            st.download_button(
+                                "Télécharger cette figure (.png)", data=image,
+                                file_name=f"zones_{Path(choix_figure).stem}.png",
+                                mime="image/png",
+                            )
                     if _case("Afficher toutes les acquisitions", "zones::toutes", False,
-                             "Utile pour balayer une campagne entière d'un coup d'œil."):
-                        for nom, image in apercus.items():
-                            if nom != choix_figure:
-                                st.image(image, use_container_width=True)
+                             "Utile pour balayer une campagne entière d'un coup d'œil. "
+                             "Chaque acquisition garde les familles qu'elle contient."):
+                        for z in lisibles:
+                            if z.chemin.name == choix_figure:
+                                continue
+                            autre = figure_zones_png(
+                                z.chemin.name, z, signaux,
+                                float(st.session_state["pe"]),
+                                [c for c in familles if c in z.familles()] or None,
+                            )
+                            if autre:
+                                st.image(autre, use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # 5 · Hypothèses

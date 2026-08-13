@@ -20,6 +20,7 @@ destinées à un document imprimé) :
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib
@@ -483,6 +484,89 @@ TEINTE_PALIER = "#898781"     # gris   — palier de sens indéterminé
 TEINTE_DYNAMIQUE = "#eda100"  # ambre  — plage exploitée pour l'intercorrélation
 TEINTE_REPOS = "#1baf7a"      # vert   — relevés de zéro
 
+# Les familles de zones affichables, dans l'ordre de lecture. Chaque clé est
+# sélectionnable indépendamment : un balayage porte des dizaines de paliers, et
+# les superposer tous à d'autres canaux rend le tracé illisible.
+TYPES_ZONES: dict[str, str] = {
+    "montee": "paliers — montée",
+    "descente": "paliers — descente",
+    "indetermine": "paliers — sens indéterminé",
+    "dynamique": "plage dynamique (retard)",
+    "ecartee": "plages actives écartées",
+    "repos": "plages de repos (dérive de zéro)",
+}
+# Par défaut hors de l'onglet des zones : les familles peu nombreuses. Les
+# paliers se demandent explicitement, ce sont eux qui encombrent.
+TYPES_ZONES_DEFAUT = ("dynamique", "repos")
+
+
+def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
+    """Pose les zones détectées en aplats de fond sur un axe temporel.
+
+    `types` restreint l'affichage aux familles demandées (clés de `TYPES_ZONES`) ;
+    `None` les affiche toutes.
+
+    Renvoie les familles effectivement tracées, sous la forme
+    `{clé: (teinte ou None, libellé)}` — la teinte vaut `None` pour les hachures,
+    qui n'ont pas d'aplat. L'appelant s'en sert pour composer sa légende : une
+    couleur sans libellé ne porterait aucune information.
+    """
+    demandes = set(TYPES_ZONES) if types is None else set(types)
+    presents: dict[str, tuple[str | None, str]] = {}
+    if zones is None or t.size < 2:
+        return presents
+    etendue = float(t[-1] - t[0]) or 1.0
+
+    def _aplat(debut: float, fin: float, teinte: str, cle: str, alpha: float) -> None:
+        if cle not in demandes:
+            return
+        # Une zone de durée nulle à l'écran ne se verrait pas : on garantit une
+        # largeur minimale d'un millième de l'axe pour qu'elle reste repérable.
+        ax.axvspan(debut, max(fin, debut + etendue / 1000.0), color=teinte,
+                   alpha=alpha, linewidth=0, zorder=1)
+        presents.setdefault(cle, (teinte, TYPES_ZONES[cle]))
+
+    for palier in getattr(zones, "paliers", []):
+        cle = palier.sens if palier.sens in ("montee", "descente") else "indetermine"
+        teinte = {"montee": TEINTE_MONTEE, "descente": TEINTE_DESCENTE}.get(
+            cle, TEINTE_PALIER
+        )
+        _aplat(palier.t_debut, palier.t_fin, teinte, cle, alpha=0.22)
+
+    plage = getattr(zones, "plage_dynamique", None)
+    if plage is not None:
+        _aplat(float(t[plage[0]]), float(t[plage[1] - 1]), TEINTE_DYNAMIQUE,
+               "dynamique", alpha=0.13)
+
+    # Les plages actives écartées, en hachures : montrer l'arbitrage, et pas
+    # seulement son résultat, est le seul moyen de repérer un mauvais choix.
+    if "ecartee" in demandes:
+        for debut, fin in getattr(zones, "plages_ecartees", []):
+            ax.axvspan(float(t[debut]), float(t[fin - 1]), facecolor="none",
+                       edgecolor=TEINTE_DYNAMIQUE, hatch="///", linewidth=0,
+                       alpha=0.55, zorder=1)
+            presents.setdefault("ecartee", (None, TYPES_ZONES["ecartee"]))
+
+    for debut, fin in getattr(zones, "plages_repos", []):
+        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_REPOS, "repos", alpha=0.20)
+    return presents
+
+
+def _poignees_zones(presents: dict) -> tuple[list, list]:
+    """Vignettes de légende correspondant aux zones tracées."""
+    poignees, etiquettes = [], []
+    for teinte, libelle in presents.values():
+        if teinte is None:  # plage écartée : hachures, sans aplat
+            poignees.append(plt.Rectangle(
+                (0, 0), 1, 1, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
+                hatch="///", linewidth=0, alpha=0.55,
+            ))
+        else:
+            poignees.append(plt.Rectangle((0, 0), 1, 1, facecolor=teinte,
+                                          alpha=0.30, edgecolor="none"))
+        etiquettes.append(libelle)
+    return poignees, etiquettes
+
 
 def figure_zones(
     t: np.ndarray,
@@ -493,6 +577,7 @@ def figure_zones(
     chemin: Path | None = None,
     titre: str = "",
     decimation: int = 1,
+    types: Sequence[str] | None = None,
 ):
     """Situe sur le signal les zones détectées, chacune identifiée par son type.
 
@@ -515,54 +600,15 @@ def figure_zones(
     ax.plot(t[::pas], mesure[::pas], color=SERIE_2, linewidth=1.1,
             label="couple mesuré transmissions", zorder=3)
 
-    presents: dict[str, tuple[str, str]] = {}
-
-    def _aplat(debut: float, fin: float, teinte: str, cle: str, libelle: str,
-               alpha: float = 0.16) -> None:
-        # Une zone de durée nulle à l'écran ne se verrait pas : on garantit une
-        # largeur minimale d'un millième de l'axe pour qu'elle reste repérable.
-        etendue = float(t[-1] - t[0]) or 1.0
-        fin = max(fin, debut + etendue / 1000.0)
-        ax.axvspan(debut, fin, color=teinte, alpha=alpha, linewidth=0, zorder=1)
-        presents.setdefault(cle, (teinte, libelle))
-
-    for palier in zones.paliers:
-        teinte, libelle = {
-            "montee": (TEINTE_MONTEE, "palier — montée"),
-            "descente": (TEINTE_DESCENTE, "palier — descente"),
-        }.get(palier.sens, (TEINTE_PALIER, "palier — sens indéterminé"))
-        _aplat(palier.t_debut, palier.t_fin, teinte, palier.sens, libelle, alpha=0.22)
-
-    if zones.plage_dynamique is not None:
-        debut, fin = zones.plage_dynamique
-        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_DYNAMIQUE, "dynamique",
-               "plage dynamique — retard", alpha=0.13)
-    # Les plages actives écartées, en hachures : montrer l'arbitrage, et pas
-    # seulement son résultat, est le seul moyen de repérer un mauvais choix.
-    for debut, fin in getattr(zones, "plages_ecartees", []):
-        ax.axvspan(float(t[debut]), float(t[fin - 1]), facecolor="none",
-                   edgecolor=TEINTE_DYNAMIQUE, hatch="///", linewidth=0,
-                   alpha=0.55, zorder=1)
-        presents.setdefault("ecartee", (None, "plage active écartée"))
-
-    for debut, fin in zones.plages_repos:
-        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_REPOS, "repos",
-               "repos — dérive de zéro", alpha=0.20)
+    presents = _superposer_zones(ax, t, zones, types)
 
     _habiller(ax, titre or zones.chemin.name, "Temps (s)", "Couple (N·m)")
     _marge_y(ax, haut=0.30, bas=0.12)
 
     poignees, etiquettes = ax.get_legend_handles_labels()
-    for teinte, libelle in presents.values():
-        if teinte is None:  # plage écartée : hachures, sans aplat
-            poignees.append(plt.Rectangle(
-                (0, 0), 1, 1, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
-                hatch="///", linewidth=0, alpha=0.55,
-            ))
-        else:
-            poignees.append(plt.Rectangle((0, 0), 1, 1, facecolor=teinte, alpha=0.30,
-                                          edgecolor="none"))
-        etiquettes.append(libelle)
+    vignettes, libelles = _poignees_zones(presents)
+    poignees += vignettes
+    etiquettes += libelles
     ax.legend(poignees, etiquettes, loc="lower right", bbox_to_anchor=(1.0, 1.0),
               ncol=min(3, len(etiquettes)), borderaxespad=0.0)
     ax.set_title(ax.get_title(loc="left"), color=ENCRE, loc="left", pad=32)
@@ -606,6 +652,8 @@ def figure_visualisation(
     chemin: Path | None = None,
     titre: str = "",
     decimation: int = 1,
+    zones=None,
+    types_zones: Sequence[str] | None = None,
 ):
     """Trace des canaux quelconques en fonction du temps.
 
@@ -617,6 +665,11 @@ def figure_visualisation(
 
     Une couleur suit un canal d'un panneau à l'autre : le lecteur apprend
     l'association une fois.
+
+    `zones` superpose les zones détectées en aplats de fond, restreintes aux
+    familles listées dans `types_zones`. Le choix est laissé à l'appelant parce
+    qu'un balayage porte des dizaines de paliers : tout afficher rendrait le
+    tracé illisible, et masquer d'office le rendrait incomplet.
     """
     _appliquer_style()
     noms = list(courbes)
@@ -636,7 +689,11 @@ def figure_visualisation(
     )
     axes = axes.ravel()
 
+    presents: dict = {}
     for ax, (unite, membres) in zip(axes, groupes.items()):
+        # Les aplats sont posés sur CHAQUE panneau : les panneaux partagent l'axe
+        # des temps, une zone vue sur un seul se lirait comme propre à ce canal.
+        presents = _superposer_zones(ax, t, zones, types_zones) or presents
         for nom in membres:
             ax.plot(t, courbes[nom], color=couleurs[nom], label=nom, zorder=3)
         # Un seul canal : le titre le nomme, aucune légende n'est nécessaire.
@@ -644,8 +701,20 @@ def figure_visualisation(
         # panneau ne ferait que répéter l'un ou l'autre.
         _habiller(ax, membres[0] if len(membres) == 1 else "", "", unite)
         _marge_y(ax, haut=0.10, bas=0.10)
-        if len(membres) > 1:
-            _legende_hors_trace(ax, ncol=min(3, len(membres)))
+        poignees, etiquettes = ax.get_legend_handles_labels()
+        if ax is axes[0]:
+            # La légende des zones ne figure qu'une fois, sur le premier panneau :
+            # répétée, elle mangerait la hauteur utile de chacun.
+            vignettes, libelles = _poignees_zones(presents)
+            poignees += vignettes
+            etiquettes += libelles
+        if len(etiquettes) > 1:
+            ax.legend(poignees, etiquettes, loc="lower right",
+                      bbox_to_anchor=(1.0, 1.0), ncol=min(3, len(etiquettes)),
+                      borderaxespad=0.0)
+            titre_panneau = ax.get_title(loc="left")
+            if titre_panneau:
+                ax.set_title(titre_panneau, color=ENCRE, loc="left", pad=26)
 
     axes[-1].set_xlabel("Temps (s)")
     figure.subplots_adjust(top=1 - BANDEAU / hauteur)

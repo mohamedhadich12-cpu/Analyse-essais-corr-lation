@@ -11,6 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -267,3 +268,54 @@ def test_des_acquisitions_sans_zone_exploitable_donnent_des_refus(tmp_path):
     assert "Retard temporel (ms) | **non calculable**" in texte
     # Mais la régression, elle, doit être disponible.
     assert resultats.regression_globale.non_calculable is None
+
+
+# ---------------------------------------------------------------------------
+# Choix des zones affichées
+# ---------------------------------------------------------------------------
+
+
+def test_les_familles_proposees_sont_celles_reellement_presentes(campagne):
+    """Proposer une famille absente ferait douter du réglage, pas du fichier."""
+    resultats, _ = campagne
+    par_nom = {z.chemin.name: z for z in resultats.zones}
+
+    balayage = next(z for n, z in par_nom.items() if "balayage" in n)
+    assert "montee" in balayage.familles() and "descente" in balayage.familles()
+    assert "repos" not in balayage.familles()
+
+    wltc = next(z for n, z in par_nom.items() if "wltc" in n)
+    assert "dynamique" in wltc.familles() and "repos" in wltc.familles()
+    assert "montee" not in wltc.familles()
+
+    # Toutes les clés annoncées doivent exister côté figures.
+    from amdec_correlation import graphiques
+
+    for zone in resultats.zones:
+        assert set(zone.familles()) <= set(graphiques.TYPES_ZONES)
+
+
+def test_le_filtre_ne_trace_que_les_familles_demandees(campagne):
+    """Le tracé doit obéir au filtre, sinon le choix est décoratif."""
+    import matplotlib.pyplot as plt
+
+    from amdec_correlation import graphiques
+
+    resultats, cfg = campagne
+    zone = next(z for z in resultats.zones if "balayage" in z.chemin.name)
+    t = np.linspace(0, zone.duree_s, 4000)
+    y = np.zeros_like(t)
+
+    figure = graphiques.figure_zones(t, y, y, zone, cfg.pleine_echelle_Nm,
+                                     types=["montee"])
+    libelles = [texte.get_text() for texte in figure.axes[0].get_legend().get_texts()]
+    plt.close(figure)
+    assert graphiques.TYPES_ZONES["montee"] in libelles
+    assert graphiques.TYPES_ZONES["descente"] not in libelles
+
+    # Et aucune famille demandée mais absente ne s'invente une légende.
+    figure = graphiques.figure_zones(t, y, y, zone, cfg.pleine_echelle_Nm,
+                                     types=["repos"])
+    libelles = [texte.get_text() for texte in figure.axes[0].get_legend().get_texts()]
+    plt.close(figure)
+    assert graphiques.TYPES_ZONES["repos"] not in libelles

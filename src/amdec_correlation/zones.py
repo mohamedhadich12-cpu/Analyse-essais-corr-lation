@@ -25,7 +25,7 @@ l'existence d'un démontage/remontage.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -79,6 +79,29 @@ class ZonesFichier:
     def alimente_derive_zero(self) -> bool:
         return self.zero_au_debut and self.zero_a_la_fin
 
+    def familles(self) -> list[str]:
+        """Familles de zones réellement présentes, dans l'ordre de lecture.
+
+        Sert à ne proposer à l'affichage que ce qui existe : offrir « paliers —
+        descente » sur un cycle qui n'en comporte pas ferait douter du réglage
+        plutôt que du contenu du fichier.
+
+        Les clés correspondent à celles de `graphiques.TYPES_ZONES`.
+        """
+        presentes: list[str] = []
+        sens = {p.sens for p in self.paliers}
+        for cle, condition in (
+            ("montee", "montee" in sens),
+            ("descente", "descente" in sens),
+            ("indetermine", bool(sens - {"montee", "descente"})),
+            ("dynamique", self.plage_dynamique is not None),
+            ("ecartee", bool(self.plages_ecartees)),
+            ("repos", bool(self.plages_repos)),
+        ):
+            if condition:
+                presentes.append(cle)
+        return presentes
+
     def contributions(self) -> list[str]:
         contributions = []
         if self.alimente_regression:
@@ -115,6 +138,37 @@ class ZonesFichier:
         elif self.plages_repos:
             morceaux.append(f"{len(self.plages_repos)} plage(s) de repos")
         return " · ".join(morceaux) or "aucune zone exploitable"
+
+
+def sur_grille_decimee(zones: ZonesFichier, pas: int) -> ZonesFichier:
+    """Ramène les indices de zone sur une grille décimée d'un facteur `pas`.
+
+    `plage_dynamique`, `plages_repos` et `plages_ecartees` sont des **indices**
+    dans le signal pleine résolution. Un tracé allégé n'affiche qu'un point sur
+    `pas` : y porter les indices d'origine décalerait les aplats, d'autant plus
+    que le fichier est long. Les paliers, eux, portent des **temps** et
+    traversent sans retouche.
+
+    L'objet d'origine n'est jamais modifié : la détection reste la référence,
+    seule sa représentation est adaptée.
+    """
+    if pas <= 1:
+        return zones
+
+    def _ramener(plage: tuple[int, int]) -> tuple[int, int]:
+        debut, fin = plage[0] // pas, plage[1] // pas
+        # Une plage plus courte que le pas doit garder au moins un point, sinon
+        # elle disparaîtrait du tracé sans que rien ne le signale.
+        return (debut, max(fin, debut + 1))
+
+    return replace(
+        zones,
+        plage_dynamique=(
+            _ramener(zones.plage_dynamique) if zones.plage_dynamique else None
+        ),
+        plages_repos=[_ramener(p) for p in zones.plages_repos],
+        plages_ecartees=[_ramener(p) for p in zones.plages_ecartees],
+    )
 
 
 def detecter(donnees, cfg: Config) -> ZonesFichier:
