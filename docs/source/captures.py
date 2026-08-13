@@ -75,12 +75,38 @@ def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
         onglet("4 · Zones détectées")
         page.get_by_role("button", name="Détecter les zones").click()
         page.wait_for_timeout(25_000)
+        # Les figures sont repliées pour la capture : le guide les montre juste
+        # après, en pleine résolution. Dépliées, elles pousseraient le tableau
+        # hors de la fenêtre et la capture serait tronquée.
+        page.get_by_text("Où se trouvent ces zones").click()
+        page.wait_for_timeout(1500)
         zone.screenshot(path=str(IMAGES / "03_zones.png"))
 
         onglet("5 · Hypothèses");   zone.screenshot(path=str(IMAGES / "04_hypotheses.png"))
 
+        # Deux combinaisons : la capture doit montrer qu'elles partagent le tracé.
         onglet("2 · Visualisation", 5000)
+        combinaisons = page.get_by_role("spinbutton", name="Nombre de combinaisons")
+        combinaisons.fill("2"); combinaisons.press("Enter")
+        page.wait_for_timeout(4000)
+        for libelle, valeur in (
+            ("Canal A — combinaison 1", "Trq_Transmission_G"),
+            ("Canal B — combinaison 1", "Trq_Transmission_D"),
+            ("Canal A — combinaison 2", "Trq_Ref_BancGMP_G"),
+            ("Canal B — combinaison 2", "Trq_Ref_BancGMP_D"),
+        ):
+            page.get_by_role("combobox", name=libelle).click()
+            page.wait_for_timeout(500)
+            page.get_by_role("option", name=valeur, exact=True).first.click()
+            page.wait_for_timeout(1200)
+        # Fenêtre agrandie le temps de la capture : une capture d'élément est
+        # tronquée à la hauteur de la fenêtre, et cet onglet — deux combinaisons
+        # plus le tracé — dépasse la hauteur de travail.
+        page.set_viewport_size({"width": 1440, "height": 1360})
+        page.wait_for_timeout(5000)
         zone.screenshot(path=str(IMAGES / "10_visualisation.png"))
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        page.wait_for_timeout(1500)
 
         onglet("6 · Analyse & résultats", 3500)
         page.get_by_role("button", name="Lancer l'analyse").click()
@@ -90,9 +116,14 @@ def capturer(url: str, racine_donnees: Path, dossier_sortie: Path) -> None:
         navigateur.close()
 
     # Une vraie figure d'analyse vaut mieux qu'une capture de l'onglet Figures.
-    figure = dossier_sortie / "figures" / "regression_paliers.png"
-    if figure.is_file():
-        (IMAGES / "08_figure_exemple.png").write_bytes(figure.read_bytes())
+    figures = dossier_sortie / "figures"
+    zones = sorted(figures.glob("zones_*balayage*.png")) or sorted(figures.glob("zones_*.png"))
+    a_copier = [(figures / "regression_paliers.png", "08_figure_exemple.png")]
+    if zones:
+        a_copier.append((zones[0], "11_zones_figure.png"))
+    for source, cible in a_copier:
+        if source.is_file():
+            (IMAGES / cible).write_bytes(source.read_bytes())
     print(f"Captures écrites dans {IMAGES}")
 
 

@@ -223,6 +223,16 @@ def test_le_detail_remonte_chaque_acquisition_a_sa_source(campagne):
     assert "Recalage `" in texte and "Dérive de zéro `" in texte
 
 
+def test_une_figure_de_zones_est_produite_par_acquisition(campagne):
+    """Le tableau dit combien, la figure dit où : les deux doivent exister."""
+    resultats, _ = campagne
+    figures = {f.name for f in resultats.figures}
+    zones_tracees = {n for n in figures if n.startswith("zones_")}
+    assert len(zones_tracees) == len(resultats.zones)
+    for figure in resultats.figures:
+        assert figure.exists() and figure.stat().st_size > 5000
+
+
 def test_un_dossier_sans_acquisition_est_signale(tmp_path):
     cfg = _config(tmp_path / "vide", tmp_path / "sortie")
     (tmp_path / "vide").mkdir()

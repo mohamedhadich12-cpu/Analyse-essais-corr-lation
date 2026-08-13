@@ -83,15 +83,21 @@ chiffre issu de ces fichiers ne doit figurer dans le rapport.
 python scripts/03_interface.py
 ```
 
-Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Six onglets
-suivent le déroulé de l'analyse :
+Une page s'ouvre dans le navigateur, sur `localhost` uniquement. Le dossier des
+acquisitions et celui de sortie se saisissent au clavier **ou se choisissent en
+parcourant le poste** : Streamlit s'exécutant dans un navigateur web, il n'a pas
+accès à la boîte de dialogue du système, l'application en propose donc une, servie
+par le processus Python — qui, lui, tourne bien sur la machine. Les dossiers
+contenant des acquisitions y sont marqués d'un point.
+
+Six onglets suivent le déroulé de l'analyse :
 
 | Onglet | Ce qu'on y fait |
 |---|---|
 | **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
-| **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux, combinaison de deux d'entre eux (somme ou différence) et resserrement de la plage de temps. Les courbes sont groupées **par unité**, un panneau par unité |
+| **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux et resserrement de la plage de temps. Jusqu'à quatre **courbes dérivées** (somme ou différence de deux canaux) se tracent dans le **même graphe** que les canaux bruts : deux sommes en N·m se comparent donc sur la même échelle. Les courbes sont groupées **par unité**, un panneau par unité |
 | **3 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
-| **4 · Zones détectées** | montre, acquisition par acquisition, ce qui a été trouvé et ce que chacune alimente. **Rien à déclarer** : c'est un relevé à vérifier, pas une saisie. Automatique ne veut pas dire opaque — si un fichier n'alimente pas ce qu'on en attendait, les seuils se règlent à l'onglet suivant |
+| **4 · Zones détectées** | montre, acquisition par acquisition, ce qui a été trouvé et ce que chacune alimente. Le tableau dit **combien**, une figure par acquisition dit **où** — chaque zone en aplat de fond, identifiée par son type. **Rien à déclarer** : c'est un relevé à vérifier, pas une saisie. Automatique ne veut pas dire opaque — si un fichier n'alimente pas ce qu'on en attendait, les seuils se règlent à l'onglet suivant |
 | **5 · Hypothèses** | toutes les bornes de traitement (ce sont elles qui décident de la détection des zones), et les deux saisies utilisateur |
 | **6 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
 
@@ -183,6 +189,16 @@ L'onglet **4 · Zones détectées** restitue le relevé fichier par fichier — 
 nombre de paliers, niveaux distincts, montée/descente, durée dynamique, zéros — et
 signale les acquisitions qui n'alimentent rien. C'est ce relevé qu'on vérifie avant
 de lire les résultats.
+
+Il l'accompagne d'**une figure par acquisition** : le signal, et chaque zone posée
+dessus en aplat de fond, une teinte par type. Le tableau dit *combien*, la figure dit
+*où* — un palier posé sur un transitoire ou une plage dynamique qui déborde sur un
+arrêt ne se voient que là. Ces figures sont aussi écrites en PNG
+(`figures/zones_<acquisition>.png`) au moment de l'analyse.
+
+> Les bandes de palier montrent la **part effectivement moyennée** — la fraction
+> finale de la plage stable — et non toute la plage : une bande plus étroite que le
+> plateau est donc normale, c'est le transitoire d'établissement qui est écarté.
 
 > Le bloc `essais:` de la configuration reste accepté : le renseigner impose un type
 > à chaque dossier et bascule l'outil en **mode déclaré**, où seul le traitement

@@ -472,7 +472,108 @@ def figure_redondance(
 
 
 # ---------------------------------------------------------------------------
-# 6. Visualisation libre de canaux
+# 6. Zones détectées dans une acquisition
+# ---------------------------------------------------------------------------
+
+# Une teinte par famille de zone, en aplat très clair : la zone est un fond,
+# jamais une donnée. Les couleurs de série restent réservées aux courbes.
+TEINTE_MONTEE = "#2a78d6"     # bleu   — paliers parcourus en montée
+TEINTE_DESCENTE = "#eb6834"   # orange — paliers parcourus en descente
+TEINTE_PALIER = "#898781"     # gris   — palier de sens indéterminé
+TEINTE_DYNAMIQUE = "#eda100"  # ambre  — plage exploitée pour l'intercorrélation
+TEINTE_REPOS = "#1baf7a"      # vert   — relevés de zéro
+
+
+def figure_zones(
+    t: np.ndarray,
+    reference: np.ndarray,
+    mesure: np.ndarray,
+    zones,
+    pleine_echelle_Nm: float,
+    chemin: Path | None = None,
+    titre: str = "",
+    decimation: int = 1,
+):
+    """Situe sur le signal les zones détectées, chacune identifiée par son type.
+
+    C'est la contrepartie visuelle du tableau de l'onglet « Zones détectées » :
+    le tableau dit *combien*, la figure dit *où*. Sans elle, la détection
+    resterait à croire sur parole — un palier mal placé, une plage dynamique qui
+    déborde sur un transitoire d'arrêt ne se voient que sur le tracé.
+
+    Les zones sont des **aplats de fond**, jamais des courbes : ce sont des
+    intervalles de temps, pas des grandeurs mesurées. Chaque type a sa teinte,
+    rappelée par une légende explicite — la couleur seule ne porte jamais
+    l'information.
+    """
+    _appliquer_style()
+    figure, ax = plt.subplots(figsize=(9.6, 3.9))
+
+    pas = max(1, int(decimation))
+    ax.plot(t[::pas], reference[::pas], color=SERIE_1, linewidth=1.1,
+            label="couple de référence banc", zorder=3)
+    ax.plot(t[::pas], mesure[::pas], color=SERIE_2, linewidth=1.1,
+            label="couple mesuré transmissions", zorder=3)
+
+    presents: dict[str, tuple[str, str]] = {}
+
+    def _aplat(debut: float, fin: float, teinte: str, cle: str, libelle: str,
+               alpha: float = 0.16) -> None:
+        # Une zone de durée nulle à l'écran ne se verrait pas : on garantit une
+        # largeur minimale d'un millième de l'axe pour qu'elle reste repérable.
+        etendue = float(t[-1] - t[0]) or 1.0
+        fin = max(fin, debut + etendue / 1000.0)
+        ax.axvspan(debut, fin, color=teinte, alpha=alpha, linewidth=0, zorder=1)
+        presents.setdefault(cle, (teinte, libelle))
+
+    for palier in zones.paliers:
+        teinte, libelle = {
+            "montee": (TEINTE_MONTEE, "palier — montée"),
+            "descente": (TEINTE_DESCENTE, "palier — descente"),
+        }.get(palier.sens, (TEINTE_PALIER, "palier — sens indéterminé"))
+        _aplat(palier.t_debut, palier.t_fin, teinte, palier.sens, libelle, alpha=0.22)
+
+    if zones.plage_dynamique is not None:
+        debut, fin = zones.plage_dynamique
+        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_DYNAMIQUE, "dynamique",
+               "plage dynamique — retard", alpha=0.13)
+
+    for debut, fin in zones.plages_repos:
+        _aplat(float(t[debut]), float(t[fin - 1]), TEINTE_REPOS, "repos",
+               "repos — dérive de zéro", alpha=0.20)
+
+    _habiller(ax, titre or zones.chemin.name, "Temps (s)", "Couple (N·m)")
+    _marge_y(ax, haut=0.30, bas=0.12)
+
+    poignees, etiquettes = ax.get_legend_handles_labels()
+    for teinte, libelle in presents.values():
+        poignees.append(plt.Rectangle((0, 0), 1, 1, facecolor=teinte, alpha=0.30,
+                                      edgecolor="none"))
+        etiquettes.append(libelle)
+    ax.legend(poignees, etiquettes, loc="lower right", bbox_to_anchor=(1.0, 1.0),
+              ncol=min(3, len(etiquettes)), borderaxespad=0.0)
+    ax.set_title(ax.get_title(loc="left"), color=ENCRE, loc="left", pad=32)
+
+    profil = zones.profil()
+    alimente = ", ".join(zones.contributions()) or "aucune grandeur"
+    note = f"{profil}  ·  alimente : {alimente}"
+    if zones.paliers:
+        # Sans cette précision, la bande plus étroite que le plateau se lit comme
+        # une détection incomplète, alors que c'est le contraire : seule la part
+        # établie est moyennée.
+        note += ("  ·  les bandes de palier montrent la part effectivement moyennée, "
+                 "pas toute la plage stable")
+    figure.text(0.012, 0.005, note, ha="left", fontsize=7.5, color=ATTENUE)
+    figure.tight_layout(rect=(0, 0.045, 1, 1))
+    if chemin is not None:
+        figure.savefig(chemin)
+        plt.close(figure)
+        return chemin
+    return figure
+
+
+# ---------------------------------------------------------------------------
+# 7. Visualisation libre de canaux
 # ---------------------------------------------------------------------------
 
 # Les huit emplacements de la palette catégorielle, dans leur ordre validé.

@@ -45,6 +45,16 @@ def slug(texte: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", sans_accent).strip("_").lower()
 
 
+# Au-delà, le tracé s'alourdit sans rien montrer de plus : deux points ne
+# peuvent pas occuper le même pixel. Ne concerne que l'AFFICHAGE — les calculs
+# portent toujours sur la totalité des échantillons.
+POINTS_TRACES_MAX = 6000
+
+
+def _decimation(t: np.ndarray) -> int:
+    return max(1, int(np.ceil(t.size / POINTS_TRACES_MAX)))
+
+
 # ---------------------------------------------------------------------------
 # Données d'un fichier, prêtes à l'exploitation
 # ---------------------------------------------------------------------------
@@ -810,6 +820,19 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
         zones = Z.detecter(donnees, cfg)
         campagne.zones.append(zones)
         paliers_tous.extend(zones.paliers)
+
+        # Le tableau des zones dit combien ; cette figure dit où. Sans elle, un
+        # palier mal placé ou une plage dynamique qui déborde sur un arrêt ne se
+        # verraient pas — la détection resterait à croire sur parole.
+        campagne.figures.append(
+            graphiques.figure_zones(
+                donnees.t, donnees.reference, donnees.mesure, zones,
+                cfg.pleine_echelle_Nm,
+                dossier_figures / f"zones_{slug(fichier.stem)}.png",
+                titre=f"{fichier.name} — zones détectées",
+                decimation=_decimation(donnees.t),
+            )
+        )
 
         residu_thermique = donnees.residu
         if zones.alimente_retard:

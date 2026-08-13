@@ -283,6 +283,22 @@ l'intérieur de votre racine d'acquisitions, il apparaîtrait comme un essai sup
 des valeurs fabriquées se mélangeraient à vos résultats.</p>
 </div>
 
+<h3>Désigner les dossiers</h3>
+<p>
+Le dossier des acquisitions et celui de sortie se saisissent au clavier dans la barre latérale,
+ou se choisissent en <strong>parcourant le poste</strong> : dépliez <em>Parcourir</em> sous le champ,
+descendez dans l'arborescence, puis <em>Choisir ce dossier</em>. Les dossiers qui contiennent des
+acquisitions sont marqués d'un point — de quoi reconnaître le bon sans y descendre.
+</p>
+
+<div class="note">
+<p><span class="etiq">Pourquoi pas la boîte de dialogue habituelle ?</span> L'outil s'affiche dans
+un navigateur web, qui n'a pas le droit d'ouvrir l'explorateur de fichiers du système ni de lire
+un chemin local. Le navigateur de dossiers proposé ici est servi par le processus Python — lui
+tourne bien sur votre poste, et voit donc vos disques. Les fichiers ne sont pour autant jamais
+transmis nulle part : ils sont lus sur place, en lecture seule.</p>
+</div>
+
 <h3>Le déroulé, en six onglets</h3>
 <table>
   <tr><th style="width:30mm">Onglet</th><th>Ce qu'on y fait</th><th style="width:38mm">Ce qui en sort</th></tr>
@@ -345,16 +361,21 @@ peut pas faire à votre place.
 <figure>
   <img src="img/10_visualisation.png" alt="Onglet Visualisation">
   <figcaption>Onglet 2 — sélection de l'essai puis du fichier, choix libre des canaux, et
-    combinaison de deux d'entre eux.</figcaption>
+    combinaisons de deux d'entre eux. Ici deux sommes — les transmissions, puis les voies de
+    référence — tracées dans le même panneau, donc sur la même échelle.</figcaption>
 </figure>
 
 <ul>
   <li><strong>Essai puis fichier</strong> : chaque dossier peut contenir plusieurs acquisitions,
       et rien ne garantit qu'elles portent toutes les mêmes canaux — la liste est relue sur le
       fichier sélectionné.</li>
-  <li><strong>Courbe dérivée</strong> : combine deux canaux par somme ou différence. La somme des
-      deux transmissions donne le couple total ; leur différence est l'indicateur de redondance,
-      le seul qui ne dépende pas de la référence banc.</li>
+  <li><strong>Courbes dérivées</strong> : combinent deux canaux par somme ou différence. La somme
+      des deux transmissions donne le couple total ; leur différence est l'indicateur de
+      redondance, le seul qui ne dépende pas de la référence banc. On peut en tracer
+      <strong>jusqu'à quatre</strong>, et elles se rangent dans le <strong>même graphe</strong> que les
+      canaux bruts, au panneau de leur unité : la somme des transmissions et celle des voies de
+      référence se lisent donc sur la même échelle — c'est tout l'intérêt d'en tracer
+      plusieurs.</li>
   <li><strong>Plage de temps</strong> : à l'échelle d'un cycle entier, quelques dizaines de
       millisecondes sont invisibles. Resserrer la plage est le seul moyen de voir un détail
       rapide.</li>
@@ -436,10 +457,31 @@ C'est un relevé à vérifier, pas une saisie.
       condition d'existence de la dérive de zéro.</td></tr>
 </table>
 
+<h4>Où se trouvent ces zones</h4>
+<p>
+Sous le tableau, <strong>une figure par acquisition</strong> pose chaque zone sur le signal, en
+aplat de fond et par type. Le tableau dit <em>combien</em>, la figure dit <em>où</em> : un palier
+posé sur un transitoire, une plage dynamique qui déborde sur un arrêt ne se voient que là. Les
+mêmes figures sont écrites en PNG dans le dossier de sortie au moment de l'analyse.
+</p>
+
+<figure>
+  <img src="img/11_zones_figure.png" alt="Zones détectées situées sur le signal d'un balayage">
+  <figcaption>Chaque zone est un intervalle de temps, donc un fond — jamais une courbe. Les
+    teintes distinguent montée, descente, plage dynamique et repos, et la légende les nomme :
+    la couleur seule ne porte jamais l'information.</figcaption>
+</figure>
+
+<div class="garde">
+<p><span class="etiq">Une bande de palier plus étroite que le plateau est normale.</span> Elle
+montre la part <em>effectivement moyennée</em> — la fraction finale de la plage stable — et non
+toute la plage : le transitoire d'établissement est volontairement écarté.</p>
+</div>
+
 <div class="astuce">
 <p><span class="etiq">Automatique ne veut pas dire opaque.</span> Si une acquisition n'alimente
-pas ce que vous en attendiez, ce tableau dit laquelle et sur quel critère. Le réglage se fait
-à l'onglet <em>Hypothèses</em> — jamais en forçant un résultat.</p>
+pas ce que vous en attendiez, le tableau dit laquelle et sur quel critère, et la figure montre
+pourquoi. Le réglage se fait à l'onglet <em>Hypothèses</em> — jamais en forçant un résultat.</p>
 </div>
 
 <div class="garde">

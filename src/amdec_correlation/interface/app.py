@@ -17,11 +17,14 @@ Lancement :  python scripts/03_interface.py
 from __future__ import annotations
 
 import io
+import itertools
 import math
+import os
 import sys
 import zipfile
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
@@ -105,6 +108,16 @@ st.session_state.setdefault("canaux_communs", {})
 st.session_state.setdefault("canaux", {})
 st.session_state.setdefault("campagne", None)
 st.session_state.setdefault("zones", [])
+st.session_state.setdefault("apercus_zones", {})
+
+# Un dossier retenu dans le navigateur est appliqué ICI, avant que le champ de
+# saisie correspondant n'existe : Streamlit refuse qu'on modifie la clé d'un
+# widget déjà instancié, et le clic sur « Choisir ce dossier » a nécessairement
+# lieu après le rendu du champ. La valeur transite donc par une clé en attente.
+for _champ in ("racine", "dossier_sortie"):
+    _choisi = st.session_state.pop(f"choisi::{_champ}", None)
+    if _choisi is not None:
+        st.session_state[_champ] = _choisi
 
 
 def _section(prefixe: str) -> dict[str, object]:
@@ -151,6 +164,133 @@ def _case(libelle: str, cle: str, defaut: bool, aide: str = "") -> bool:
     )
     st.session_state[cle] = valeur
     return valeur
+
+
+def _points_de_depart() -> list[Path]:
+    """Racines de navigation : dossier utilisateur, puis volumes de la machine.
+
+    Sous Windows on énumère les lettres de lecteur — un poste d'essai range
+    couramment les acquisitions sur un disque autre que le système. Sous
+    Linux/macOS, la racine unique suffit.
+    """
+    depart = [Path.home()]
+    if os.name == "nt":
+        depart += [
+            Path(f"{lettre}:\\")
+            for lettre in "CDEFGHIJKLMNOPQRSTUVWXYZ"
+            if Path(f"{lettre}:\\").is_dir()
+        ]
+    else:
+        depart.append(Path("/"))
+    return [d for d in depart if d.is_dir()]
+
+
+def _dossier_ou_defaut(chemin: str) -> Path:
+    """Chemin de départ de la navigation, toujours absolu et existant.
+
+    Attention à `Path("")` : il vaut `Path(".")`, dont `is_dir()` est vrai. Sans
+    ce garde-fou, un champ vide ferait démarrer la navigation dans le dossier
+    courant du processus, en chemins relatifs — et le dossier choisi ne voudrait
+    plus rien dire une fois l'application relancée d'ailleurs.
+    """
+    if chemin and Path(chemin).is_dir():
+        return Path(chemin).resolve()
+    return _points_de_depart()[0]
+
+
+def _parcourir(cle: str, libelle: str, creer: bool = False) -> None:
+    """Navigateur de dossiers, dans l'application.
+
+    Streamlit s'exécute dans un navigateur web : il n'a pas accès à la boîte de
+    dialogue « Parcourir » du système. On en propose donc une, servie par le
+    processus Python — qui, lui, tourne bien sur le poste de l'utilisateur.
+
+    Le dossier retenu n'est pas écrit directement dans l'état du champ de
+    saisie : Streamlit interdit de modifier la clé d'un widget déjà instancié
+    dans la même exécution. On dépose la valeur en attente, et l'en-tête du
+    script l'applique au tout début de l'exécution suivante — avant que le champ
+    n'existe (cf. `_appliquer_dossiers_choisis`).
+
+    `creer` autorise la saisie d'un sous-dossier qui n'existe pas encore : c'est
+    le cas du dossier de sortie, qui sera créé à l'écriture du rapport.
+    """
+    cle_nav = f"nav::{cle}"
+    if cle_nav not in st.session_state:
+        st.session_state[cle_nav] = str(_dossier_ou_defaut(st.session_state.get(cle, "")))
+
+    with st.expander(f"Parcourir — {libelle}", expanded=False):
+        ici = Path(st.session_state[cle_nav])
+        # Le chemin courant en clair : dans une barre latérale étroite, un
+        # chemin long doit pouvoir se replier sur plusieurs lignes.
+        st.caption(str(ici))
+
+        # Empilement plutôt que colonnes : la barre latérale est trop étroite
+        # pour deux boutons côte à côte, dont les libellés se couperaient.
+        if st.button("Choisir ce dossier", key=f"{cle}::choisir",
+                     type="primary", use_container_width=True):
+            st.session_state[f"choisi::{cle}"] = str(ici)
+            st.rerun()
+        if ici.parent != ici and st.button(
+            "Remonter d'un niveau", key=f"{cle}::parent", use_container_width=True
+        ):
+            st.session_state[cle_nav] = str(ici.parent)
+            st.rerun()
+
+        # Repartir de la saisie : le navigateur ne se recale pas tout seul sur le
+        # champ, sinon il annulerait la navigation en cours à chaque exécution.
+        saisi = st.session_state.get(cle, "")
+        if saisi and Path(saisi).is_dir() and Path(saisi).resolve() != ici:
+            if st.button("Aller au dossier saisi", key=f"{cle}::saisi",
+                         use_container_width=True):
+                st.session_state[cle_nav] = str(Path(saisi).resolve())
+                st.rerun()
+
+        depart = _points_de_depart()
+        raccourcis = st.columns(min(len(depart), 4))
+        for colonne, racine_depart in zip(itertools.cycle(raccourcis), depart):
+            with colonne:
+                libelle_court = (
+                    "Accueil" if racine_depart == Path.home()
+                    else (racine_depart.drive or str(racine_depart))
+                )
+                if st.button(libelle_court, key=f"{cle}::depart::{racine_depart}",
+                             use_container_width=True):
+                    st.session_state[cle_nav] = str(racine_depart)
+                    st.rerun()
+
+        try:
+            sous_dossiers = sorted(
+                (p for p in ici.iterdir() if p.is_dir() and not p.name.startswith(".")),
+                key=lambda p: p.name.lower(),
+            )
+        except PermissionError:
+            st.warning("Dossier non lisible avec les droits actuels.")
+            return
+
+        acquisitions = [f for f in lecteurs.lister_fichiers(ici) if f.parent == ici]
+        if acquisitions:
+            st.success(f"{len(acquisitions)} acquisition(s) directement dans ce dossier.")
+        elif not sous_dossiers:
+            st.info("Dossier vide.")
+
+        for sous in sous_dossiers[:60]:
+            # La marque annonce que le dossier contient des acquisitions, avant
+            # d'y descendre : sans elle, on navigue à l'aveugle.
+            porteur = bool(lecteurs.lister_fichiers(sous, 1))
+            if st.button(f"{sous.name}{'  ●' if porteur else ''}",
+                         key=f"{cle}::vers::{sous.name}", use_container_width=True,
+                         help="Contient des acquisitions." if porteur else None):
+                st.session_state[cle_nav] = str(sous)
+                st.rerun()
+        if len(sous_dossiers) > 60:
+            st.caption(f"… et {len(sous_dossiers) - 60} autres. Saisis le chemin directement.")
+
+        if creer:
+            nouveau = st.text_input("Créer un sous-dossier ici", key=f"{cle}::nouveau",
+                                    placeholder="sortie")
+            if nouveau and st.button("Créer et choisir", key=f"{cle}::creer"):
+                st.session_state[f"choisi::{cle}"] = str(ici / nouveau)
+                st.rerun()
 
 
 def _pastille(ok: bool | None, texte: str) -> str:
@@ -206,10 +346,25 @@ def _valeur(x: float, decimales: int = 3, signe: bool = False, suffixe: str = ""
 # peuvent pas occuper le même pixel.
 MAX_POINTS_TRACES = 5000
 
+# Chaque combinaison consomme un emplacement de couleur : au-delà, le tracé
+# n'est plus lisible avant même d'ajouter un canal brut.
+MAX_DERIVEES = 4
+
 
 @st.cache_data(show_spinner=False)
 def fichiers_du_dossier(racine: str, dossier: str) -> list[Path]:
-    return lecteurs.lister_fichiers(Path(racine) / dossier)
+    """Acquisitions d'un groupe de l'inventaire.
+
+    `(racine)` n'est pas un sous-dossier : c'est le groupe des acquisitions
+    posées directement dans le dossier racine — le cas d'un dossier plat, qui
+    est l'organisation la plus courante. Les concaténer au chemin donnerait
+    `racine/(racine)`, qui n'existe pas, et la visualisation ne verrait aucun
+    fichier là où il y en a.
+    """
+    racine = Path(racine)
+    if dossier == I.NOM_RACINE:
+        return [f for f in lecteurs.lister_fichiers(racine) if f.parent == racine]
+    return lecteurs.lister_fichiers(racine / dossier)
 
 
 @st.cache_data(show_spinner=False)
@@ -233,13 +388,17 @@ def canaux_du_fichier(chemin: str) -> dict[str, str]:
     }
 
 
-def detecter_zones(cfg) -> list:
+def detecter_zones(cfg) -> tuple[list, dict[str, bytes]]:
     """Détecte les zones de chaque acquisition, sans lancer l'analyse complète.
 
     Permet de vérifier ce que l'outil a trouvé AVANT de calculer quoi que ce
     soit — c'est ce qui rend le mode automatique auditable.
+
+    Renvoie aussi une figure par acquisition, en PNG. On la produit ici, pendant
+    que le signal est chargé : le conserver en mémoire pour tracer plus tard
+    coûterait bien davantage qu'une image.
     """
-    resultats = []
+    resultats, apercus = [], {}
     mapping = cfg.canaux_pour("")
     for fichier in lecteurs.lister_fichiers(cfg.racine):
         try:
@@ -247,15 +406,32 @@ def detecter_zones(cfg) -> list:
         except Exception as exc:
             resultats.append(Zn.ZonesFichier(chemin=fichier, duree_s=0.0, erreur=str(exc)))
             continue
-        resultats.append(Zn.detecter(donnees, cfg))
-    return resultats
+        zones = Zn.detecter(donnees, cfg)
+        resultats.append(zones)
+
+        figure = graphiques.figure_zones(
+            donnees.t, donnees.reference, donnees.mesure, zones, cfg.pleine_echelle_Nm,
+            titre=f"{fichier.name} — zones détectées",
+            decimation=max(1, int(np.ceil(donnees.t.size / MAX_POINTS_TRACES))),
+        )
+        tampon = io.BytesIO()
+        figure.savefig(tampon, format="png", dpi=110, bbox_inches="tight")
+        plt.close(figure)
+        apercus[fichier.name] = tampon.getvalue()
+    return resultats, apercus
 
 
 def tracer_visualisation(
     fichier: Path, noms: list[str], catalogue: dict[str, str],
-    derivee_active: bool, canal_a: str, operateur: str, canal_b: str,
+    derivees: list[tuple[str, str, str]],
 ) -> None:
-    """Charge les canaux demandés et les trace, groupés par unité."""
+    """Charge les canaux demandés et les trace, groupés par unité.
+
+    `derivees` est une liste de combinaisons `(canal A, opérateur, canal B)`.
+    Elles rejoignent le même tracé que les canaux bruts, et se rangent dans le
+    panneau de leur unité : deux sommes en N·m se comparent donc directement,
+    sur la même échelle — ce qui est tout l'intérêt d'en tracer plusieurs.
+    """
     try:
         with st.spinner("Lecture du fichier (lecture seule)…"):
             signaux = lecteurs.charger_canaux(
@@ -286,7 +462,9 @@ def tracer_visualisation(
                if nom in signaux.scalaires}
     unites = {nom: catalogue.get(nom, "") for nom in courbes}
 
-    if derivee_active and canal_a in courbes and canal_b in courbes:
+    for canal_a, operateur, canal_b in derivees:
+        if canal_a not in courbes or canal_b not in courbes:
+            continue
         signe = 1.0 if operateur == "+" else -1.0
         etiquette = f"{canal_a} {operateur} {canal_b}"
         courbes[etiquette] = courbes[canal_a] + signe * courbes[canal_b]
@@ -371,9 +549,11 @@ with st.sidebar:
     st.text_input(
         "Dossier racine des acquisitions", key="racine",
         placeholder=r"C:\user\SD17365\Documents",
-        help="Le dossier qui contient les sous-dossiers d'essai. Rien n'est envoyé "
-        "hors du poste : tout s'exécute en local, en lecture seule.",
+        help="Le dossier qui contient les acquisitions. Les sous-dossiers, s'il y en "
+        "a, sont parcourus aussi. Rien n'est envoyé hors du poste : tout s'exécute "
+        "en local, en lecture seule.",
     )
+    _parcourir("racine", "acquisitions")
     racine = st.session_state["racine"]
     racine_ok = bool(racine) and Path(racine).is_dir()
     if racine and not racine_ok:
@@ -381,6 +561,7 @@ with st.sidebar:
 
     st.text_input("Dossier de sortie", key="dossier_sortie",
                   help="Rapport Markdown et figures PNG y seront écrits.")
+    _parcourir("dossier_sortie", "sortie", creer=True)
 
     st.divider()
     st.markdown("**Chaîne de mesure**")
@@ -603,41 +784,59 @@ with onglets[VISUALISATION]:
                     "ne sont plus distinguables de façon fiable.",
                 )
 
-                st.markdown("**Courbe dérivée** — combinaison de deux canaux")
-                d1, d2, d3, d4 = st.columns([1, 2, 0.7, 2])
-                with d1:
-                    activer = _case("Activer", "vue::derivee_active", False)
-                with d2:
-                    gauche = st.selectbox("Canal A", noms, key="vue::derivee_a",
-                                          disabled=not activer)
-                with d3:
-                    operateur = st.selectbox("Opé.", ["+", "−"], key="vue::derivee_op",
-                                             disabled=not activer)
-                with d4:
-                    droite = st.selectbox("Canal B", noms, key="vue::derivee_b",
-                                          disabled=not activer,
-                                          index=min(1, len(noms) - 1))
+                st.markdown("**Courbes dérivées** — combinaisons de deux canaux")
+                st.caption(
+                    "Elles se tracent dans le **même graphe** que les canaux bruts, "
+                    "et dans le panneau de leur unité : deux sommes en N·m se "
+                    "comparent donc directement, sur la même échelle."
+                )
+                n_derivees = st.number_input(
+                    "Nombre de combinaisons", min_value=0, max_value=MAX_DERIVEES,
+                    step=1, key="vue::n_derivees",
+                    help="0 pour n'en tracer aucune. Chaque combinaison ajoute une "
+                    "courbe au tracé.",
+                )
 
-                a_tracer = list(selection)
-                if activer:
+                derivees: list[tuple[str, str, str]] = []
+                for i in range(int(n_derivees)):
+                    d1, d2, d3 = st.columns([2, 0.7, 2])
+                    with d1:
+                        gauche = st.selectbox(
+                            f"Canal A — combinaison {i + 1}", noms, key=f"vue::der::{i}::a",
+                            index=min(i * 2, len(noms) - 1),
+                        )
+                    with d2:
+                        operateur = st.selectbox("Opé.", ["+", "−"], key=f"vue::der::{i}::op")
+                    with d3:
+                        droite = st.selectbox(
+                            f"Canal B — combinaison {i + 1}", noms, key=f"vue::der::{i}::b",
+                            index=min(i * 2 + 1, len(noms) - 1),
+                        )
                     if catalogue.get(gauche) != catalogue.get(droite):
                         st.warning(
                             f"« {gauche} » est en {catalogue.get(gauche) or 'sans unité'} et "
                             f"« {droite} » en {catalogue.get(droite) or 'sans unité'} : "
                             "leur combinaison n'a pas de sens physique."
                         )
-                    a_tracer = list(dict.fromkeys(a_tracer + [gauche, droite]))
+                    derivees.append((gauche, operateur, droite))
+
+                # Les canaux d'une combinaison sont chargés même s'ils ne sont pas
+                # sélectionnés : sans eux, la courbe dérivée ne peut pas être calculée.
+                a_tracer = list(dict.fromkeys(
+                    list(selection) + [n for a, _, b in derivees for n in (a, b)]
+                ))
+                total = len(selection) + len(derivees)
 
                 if not a_tracer:
                     st.info("Sélectionne au moins un canal.")
-                elif len(selection) > graphiques.MAX_COURBES:
+                elif total > graphiques.MAX_COURBES:
                     st.error(
-                        f"{len(selection)} canaux sélectionnés, {graphiques.MAX_COURBES} au "
+                        f"{total} courbes demandées ({len(selection)} canaux et "
+                        f"{len(derivees)} combinaison(s)), {graphiques.MAX_COURBES} au "
                         "maximum. Au-delà, deux courbes cessent d'être distinguables."
                     )
                 else:
-                    tracer_visualisation(fichier, a_tracer, catalogue,
-                                         activer, gauche, operateur, droite)
+                    tracer_visualisation(fichier, a_tracer, catalogue, derivees)
 
 with onglets[CANAUX]:
     st.subheader("Mapping des canaux")
@@ -720,9 +919,10 @@ with onglets[ZONES]:
             "examinée pour <b>ce qu'elle contient réellement</b> — paliers stabilisés, plage "
             "dynamique, relevés de zéro — et chaque grandeur est calculée à partir des zones "
             "qui la concernent, tous fichiers confondus.<br>"
-            "Ce tableau montre ce qui a été trouvé. <b>Automatique ne veut pas dire opaque</b> : "
-            "si une acquisition n'alimente pas ce que vous attendiez, les seuils de détection "
-            "se règlent dans l'onglet Hypothèses.</div>",
+            "Le tableau dit <b>combien</b>, les figures disent <b>où</b>. "
+            "<b>Automatique ne veut pas dire opaque</b> : si une acquisition n'alimente pas "
+            "ce que vous attendiez, les seuils de détection se règlent dans l'onglet "
+            "Hypothèses.</div>",
             unsafe_allow_html=True,
         )
         st.write("")
@@ -735,7 +935,9 @@ with onglets[ZONES]:
             else:
                 try:
                     with st.spinner("Lecture des acquisitions (lecture seule)…"):
-                        st.session_state["zones"] = detecter_zones(cfg)
+                        trouvees, apercus = detecter_zones(cfg)
+                    st.session_state["zones"] = trouvees
+                    st.session_state["apercus_zones"] = apercus
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Détection impossible : {exc}")
@@ -786,6 +988,40 @@ with onglets[ZONES]:
             for z in zones:
                 if z.erreur:
                     st.error(f"`{z.chemin.name}` : {z.erreur}")
+
+            apercus = st.session_state.get("apercus_zones") or {}
+            if apercus:
+                st.divider()
+                with st.expander("Où se trouvent ces zones", expanded=True):
+                    st.markdown(
+                        "<div class='aide'>Le tracé situe chaque zone sur le signal, en aplat "
+                        "de fond et par type. C'est le contrôle qui manque au tableau : un "
+                        "palier posé sur un transitoire ou une plage dynamique qui déborde sur "
+                        "un arrêt ne se voient que là.<br>"
+                        "Les bandes de palier montrent la part <b>effectivement moyennée</b> — "
+                        "la fraction finale de la plage stable — et non toute la plage.</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.write("")
+                    lisibles = [z for z in zones if z.erreur is None]
+                    choix_figure = st.selectbox(
+                        "Acquisition", [z.chemin.name for z in lisibles],
+                        key="zones::apercu",
+                        help="Une figure par acquisition. Elles sont aussi écrites en PNG "
+                        "dans le dossier de sortie au moment de l'analyse.",
+                    )
+                    if choix_figure in apercus:
+                        st.image(apercus[choix_figure], use_container_width=True)
+                        st.download_button(
+                            "Télécharger cette figure (.png)", data=apercus[choix_figure],
+                            file_name=f"zones_{Path(choix_figure).stem}.png",
+                            mime="image/png",
+                        )
+                    if _case("Afficher toutes les acquisitions", "zones::toutes", False,
+                             "Utile pour balayer une campagne entière d'un coup d'œil."):
+                        for nom, image in apercus.items():
+                            if nom != choix_figure:
+                                st.image(image, use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # 5 · Hypothèses
