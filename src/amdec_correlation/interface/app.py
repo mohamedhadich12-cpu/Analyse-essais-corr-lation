@@ -100,6 +100,7 @@ DEFAUTS: dict[str, object] = {
     "i::seuil_activite_pc_pe": 2.0, "i::fenetre_activite_s": 1.0,
     "i::duree_comblement_s": 5.0,
     "i::n_blocs_coherence": 4, "i::accord_blocs_max_ms": 20.0,
+    "i::fraction_score_min": 0.25, "i::duree_min_fenetre_s": 0.0,
     "z::duree_fenetre_s": 5.0, "z::seuil_couple_ref_pc_pe": 1.0,
     "z::seuil_regime": 20.0, "z::fraction_bord": 0.25,
     "t::amplitude_min_C": 5.0,
@@ -677,6 +678,11 @@ def _configuration_courante() -> dict | None:
     intercorrelation = dict(_section("i"))
     if not intercorrelation["passe_haut_Hz"]:
         intercorrelation["passe_haut_Hz"] = None
+    # 0 s à l'écran signifie « règle automatique », que la configuration exprime
+    # par `null` : une durée minimale nulle laisserait passer des fenêtres d'un
+    # seul point.
+    if not intercorrelation.get("duree_min_fenetre_s"):
+        intercorrelation["duree_min_fenetre_s"] = None
 
     commun = st.session_state["mapping_commun"]
     return E.construire_dict(
@@ -1220,6 +1226,24 @@ with onglets[HYPOTHESES]:
                         key="i::fenetre_activite_s")
         st.number_input("Comblement des interruptions (s)", 0.0, 60.0, step=1.0,
                         key="i::duree_comblement_s")
+        st.number_input(
+            "Durée minimale d'une fenêtre (s) — 0 = automatique", 0.0, 120.0, step=1.0,
+            key="i::duree_min_fenetre_s",
+            help="0 applique la règle par défaut : dix fois le retard maximal "
+            "recherché, avec un plancher de 2 s. Sur une campagne de départs "
+            "arrêtés, ce verrou écarte souvent les fronts eux-mêmes, actifs "
+            "seulement deux à quatre secondes — c'est le premier réglage à "
+            "abaisser si les fronts n'apparaissent pas comme fenêtres.",
+        )
+        st.number_input(
+            "Score minimal d'une fenêtre (fraction de la meilleure)", 0.0, 1.0,
+            step=0.05, key="i::fraction_score_min",
+            help="Toutes les fenêtres dynamiques sont corrélées, et le retard "
+            "est la médiane des leurs. Celles dont le score amplitude × √durée "
+            "tombe sous cette fraction de la meilleure sont écartées : sur un "
+            "relevé long, une portion de bruit franchirait le seuil d'activité "
+            "sans rien apprendre du retard.",
+        )
         st.number_input(
             "Sous-fenêtres de contrôle du retard", 2, 10, step=1,
             key="i::n_blocs_coherence",

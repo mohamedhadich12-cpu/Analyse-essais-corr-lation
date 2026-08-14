@@ -248,11 +248,79 @@ def test_le_retard_reste_juste_sur_un_depart_arrete(retard_s):
     assert periodes >= 0.95 * M.PERIODES_MIN_DANS_FENETRE
 
 
+def _quatre_departs_arretes(u: np.ndarray) -> np.ndarray:
+    """Quatre départs arrêtés dans un même relevé, comme sur banc.
+
+    Chaque front mesure le même retard : les quatre doivent être exploités.
+    """
+    y = np.zeros_like(u)
+    for depart in (10.0, 150.0, 290.0, 430.0):
+        front = (u >= depart) & (u < depart + 0.7)
+        y[front] = 1000.0 * (u[front] - depart) / 0.7
+        # Décroissance linéaire sur 8 s : c'est elle qui rend le départ
+        # « actif » assez longtemps pour être corrélé, la pente restant
+        # au-dessus du seuil au lieu de s'effondrer comme une exponentielle.
+        decroissance = (u >= depart + 0.7) & (u < depart + 8.7)
+        y[decroissance] = 1000.0 * (1.0 - (u[decroissance] - depart - 0.7) / 8.0)
+        retro = (u >= depart + 8.7) & (u < depart + 120.0)
+        y[retro] = -110.0
+    return y
+
+
+def test_toutes_les_plages_dynamiques_sont_exploitees():
+    """Quatre départs arrêtés, c'est quatre mesures du même retard.
+
+    N'en garder qu'une reviendrait à jeter les trois autres — et à se priver de
+    la seule vraie mesure de reproductibilité disponible dans le fichier.
+    """
+    t = np.arange(0, 575.0, 1 / 200.0)
+    rng = np.random.default_rng(11)
+    ref = _quatre_departs_arretes(t) + rng.normal(0, 6.0, t.size)
+    mesure = _quatre_departs_arretes(t - 0.040) + rng.normal(0, 6.0, t.size)
+
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert recal.non_calculable is None
+    assert len(recal.fenetres) == 4, (
+        f"{len(recal.fenetres)} fenêtre(s) exploitée(s) : les quatre fronts doivent "
+        "contribuer"
+    )
+    assert recal.retard_ms == pytest.approx(40.0, abs=8.0)
+    assert "fenêtres" in recal.source_dispersion
+    # Chaque fenêtre couvre un départ distinct.
+    debuts = sorted(f[0][0] for f in recal.fenetres)
+    for attendu, obtenu in zip((10.0, 150.0, 290.0, 430.0), debuts):
+        assert abs(obtenu - attendu) < 15.0
+
+
+def test_le_retard_resiste_a_une_fenetre_aberrante():
+    """La médiane protège ; et le désaccord entre fenêtres est annoncé."""
+    t = np.arange(0, 575.0, 1 / 200.0)
+    rng = np.random.default_rng(12)
+    ref = _quatre_departs_arretes(t) + rng.normal(0, 6.0, t.size)
+    mesure = _quatre_departs_arretes(t - 0.040) + rng.normal(0, 6.0, t.size)
+    # Un seul départ mal synchronisé — un décrochage d'acquisition, par exemple.
+    faux = (t >= 285.0) & (t < 330.0)
+    mesure[faux] = np.interp(t[faux] - 0.300, t, _quatre_departs_arretes(t - 0.040))
+
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert recal.retard_ms == pytest.approx(40.0, abs=10.0), (
+        "la médiane doit ignorer la fenêtre aberrante"
+    )
+    assert recal.faiblement_identifie, "le désaccord entre fenêtres doit être signalé"
+
+
 @pytest.mark.parametrize("graine", range(6))
 def test_un_retard_porte_par_le_seul_front_est_annonce_comme_fragile(graine):
-    """Le tout est de le dire : la valeur est juste, mais mal assise."""
-    t, ref, mesure = _deux_voies(_forme_depart_arrete, 0.040, graine=graine)
+    """Une seule fenêtre exploitable : on retombe sur le découpage en blocs.
+
+    Le palier de rétro est ici parfaitement plat — il ne franchit pas le seuil
+    d'activité et n'est donc pas une fenêtre. Tout repose sur le front.
+    """
+    plat = lambda u: _forme_depart_arrete(u, ondulation_retro=0.0)  # noqa: E731
+    t, ref, mesure = _deux_voies(plat, 0.040, graine=graine)
     recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    assert len(recal.fenetres) == 1, "le palier plat ne doit pas être une fenêtre"
+    assert "sous-fenêtres" in recal.source_dispersion
     assert recal.faiblement_identifie, (
         "sur un départ arrêté, seul le front porte l'information de synchronisation : "
         f"les sous-fenêtres ne peuvent pas s'accorder (étendue "

@@ -153,10 +153,12 @@ class ParamsIntercorrelation:
         variance instantanée s'annule sans que la phase cesse d'être dynamique,
         et sans ce comblement la fenêtre d'analyse serait fragmentée en
         tronçons trop courts pour identifier le retard ;
-      * entre plusieurs portions dynamiques candidates, celle retenue est la
-        plus **informative** — amplitude × √durée du signal filtré — et non la
-        plus longue : sur un départ arrêté, un long palier de rétro bruité
-        l'emporterait sur le front de couple, court mais seul porteur de
+      * **toutes** les portions dynamiques assez informatives sont corrélées,
+        et le retard retenu est la médiane des retards par fenêtre : un fichier
+        de quatre départs arrêtés porte quatre mesures du même retard. Le score
+        `amplitude × √durée` du signal filtré sert à écarter les portions qui
+        n'apprennent rien — sur un départ arrêté, un long palier de rétro bruité
+        l'emporterait sinon sur le front de couple, court mais seul porteur de
         l'information de synchronisation ;
       * le retard est ré-estimé sur `n_blocs_coherence` sous-fenêtres égales ;
         si leurs résultats s'écartent de plus de `accord_blocs_max_ms`, le
@@ -175,6 +177,22 @@ class ParamsIntercorrelation:
     # signalés à tort.
     n_blocs_coherence: int = 4
     accord_blocs_max_ms: float = 20.0
+    # Toutes les plages dynamiques sont corrélées, pas seulement la meilleure :
+    # quatre départs arrêtés donnent quatre mesures du même retard. Sont écartées
+    # celles dont le score `amplitude × √durée` tombe sous cette fraction de la
+    # meilleure — sur un relevé long, une portion de bruit franchit le seuil
+    # d'activité sans rien apprendre du retard.
+    fraction_score_min: float = 0.25
+    # Durée minimale d'une plage pour être corrélée. `null` applique la règle
+    # par défaut : dix fois le retard maximal recherché, avec un plancher de 2 s.
+    #
+    # C'EST UN VERROU À CONNAÎTRE. Avec 500 ms de retard maximal, il exige 5 s,
+    # alors qu'un front de départ arrêté n'est « actif » que deux à quatre
+    # secondes : les fronts sont alors tous écartés, et le retard finit par se
+    # lire sur une portion plus longue mais moins informative. Sur une campagne
+    # de départs arrêtés, l'abaisser — ou réduire `retard_max_ms`, qui le pilote
+    # — est le premier réglage à revoir.
+    duree_min_fenetre_s: float | None = None
 
 
 @dataclass(frozen=True)

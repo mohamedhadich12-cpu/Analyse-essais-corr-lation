@@ -551,9 +551,12 @@ def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
         )
         _aplat(palier.t_debut, palier.t_fin, teinte, cle, alpha=0.22)
 
-    plage = getattr(zones, "plage_dynamique_s", None)
-    if plage is not None:
-        _aplat(plage[0], plage[1], TEINTE_DYNAMIQUE, "dynamique", alpha=0.13)
+    plages = getattr(zones, "plages_dynamiques_s", None)
+    if not plages:
+        plage = getattr(zones, "plage_dynamique_s", None)
+        plages = [plage] if plage is not None else []
+    for debut, fin in plages:
+        _aplat(debut, fin, TEINTE_DYNAMIQUE, "dynamique", alpha=0.13)
 
     # Les plages actives écartées : montrer l'arbitrage, et pas seulement son
     # résultat, est le seul moyen de repérer un mauvais choix.

@@ -184,7 +184,7 @@ qu'elle alimente.
 | **Palier stabilisé** | l'écart-type du couple de **référence** reste sous `paliers.tolerance_stab_pc_pe` pendant au moins `paliers.duree_palier_s` | régression (offset, sensibilité, non-linéarité) dès **3 niveaux distincts** dans le fichier ; sinon répétabilité seule |
 | **Montée _et_ descente** dans le même fichier | des paliers de sens opposés existent au même niveau, à `tolerance_appariement_pc_pe` près | hystérésis |
 | **Même niveau atteint par ≥ 2 fichiers** | regroupement des paliers de **toute** la campagne par niveau de couple | répétabilité — deux acquisitions passant par le même point de fonctionnement constituent une répétition, quel qu'ait été le protocole |
-| **Plage dynamique** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées. Entre plusieurs candidates, la retenue est **la plus informative** — amplitude × √durée du signal filtré — jamais la plus longue | retard temporel par intercorrélation |
+| **Plages dynamiques** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées, et d'une durée d'au moins `duree_min_fenetre_s`. **Toutes** sont corrélées, sauf celles dont le score amplitude × √durée tombe sous `fraction_score_min` de la meilleure | retard temporel : un retard par fenêtre, médiane retenue |
 | **Plages de repos** | couple et régime quasi nuls ; il en faut **deux distinctes**, l'une dans les premiers `zero.fraction_bord` de l'essai, l'autre dans les derniers | dérive de zéro sur cycle |
 
 Un même fichier peut contenir les trois familles de zones, et c'est fréquent : un
@@ -219,10 +219,19 @@ ferait identifier le retard sur du bruit autour d'une constante.
 
 ### Un retard peut être juste et mal assis
 
-Le retard est ré-estimé sur quatre sous-fenêtres de la plage retenue. Si leurs
-résultats s'étendent sur plus de `accord_blocs_max_ms`, il est annoncé
-**« faiblement identifié »** dans le tableau et le détail — il ne tient alors qu'à
-une partie du signal.
+Quand un fichier porte **plusieurs** fenêtres dynamiques — quatre départs arrêtés,
+par exemple — chacune donne une mesure du retard, et leur étendue est une
+reproductibilité réelle. Sur une fenêtre unique, le retard est ré-estimé sur quatre
+sous-fenêtres, faute de mieux. Dans les deux cas, une étendue supérieure à
+`accord_blocs_max_ms` fait annoncer le retard **« faiblement identifié »** dans le
+tableau et le détail — il ne tient alors qu'à une partie du signal.
+
+> ⚠️ **Sur une campagne de départs arrêtés**, vérifiez que les fronts sont bien
+> devenus des fenêtres. La durée minimale vaut par défaut dix fois le retard
+> maximal recherché, soit 5 s, alors qu'un front n'est « actif » que deux à quatre
+> secondes : il serait écarté, et le retard se lirait sur une portion plus longue
+> mais moins informative. `intercorrelation.duree_min_fenetre_s` lève ce verrou, et
+> la figure des zones montre immédiatement le résultat.
 
 C'est structurellement le cas d'un départ arrêté : seul le front porte l'information
 de synchronisation, la décroissance qui suit n'en porte aucune. La valeur reste le
@@ -243,7 +252,7 @@ en silence.
 | Non-linéarité | résidu maximal à la droite de régression | — |
 | Hystérésis | écart montée/descente au même couple de référence | appariement à tolérance donnée ; sens déduit de la variation de niveau |
 | Répétabilité | écart-type poolé **du résidu** à couple constant | raisonner sur le résidu retire la variation résiduelle de la référence |
-| Retard temporel | intercorrélation, pic affiné au sous-échantillon | passe-haut à phase nulle préalable, **coupure relevée si la fenêtre est courte** (au moins cinq périodes dedans) ; corrélation normalisée par le **recouvrement réel** ; recherche bornée ; seule la plage dynamique **la plus informative** est corrélée, et le retard est déclaré fragile si ses sous-fenêtres ne s'accordent pas |
+| Retard temporel | intercorrélation sur **toutes** les fenêtres dynamiques, médiane des retards, pic affiné au sous-échantillon | passe-haut à phase nulle préalable, **coupure relevée si la fenêtre est courte** (au moins cinq périodes dedans) ; corrélation normalisée par le **recouvrement réel** ; recherche bornée ; seule la plage dynamique **la plus informative** est corrélée, et le retard est déclaré fragile si ses sous-fenêtres ne s'accordent pas |
 | Sensibilité thermique | régression **multiple** `résidu = α·couple + β·T + γ` | β seul est l'effet thermique : sans cette séparation, l'erreur de gain serait comptée comme thermique, couple et température montant ensemble au fil d'un essai |
 | Dérive de zéro | écart entre relevés de repos de début et de fin | le repos doit tomber dans les premiers / derniers % de l'essai |
 | Redondance G−D | moyenne et écart-type de l'écart entre voies | valable seulement en ligne droite sans sollicitation différentielle |

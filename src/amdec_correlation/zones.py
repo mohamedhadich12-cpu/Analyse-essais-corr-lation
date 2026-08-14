@@ -56,6 +56,9 @@ class ZonesFichier:
     # reste valable sur n'importe quelle grille. Tout affichage passe donc par
     # ces champs ; les indices restent réservés au découpage des signaux.
     plage_dynamique_s: tuple[float, float] | None = None
+    # TOUTES les plages exploitées pour le retard, pas seulement la meilleure :
+    # un fichier de quatre départs arrêtés en porte quatre.
+    plages_dynamiques_s: list[tuple[float, float]] = field(default_factory=list)
     plages_ecartees_s: list[tuple[float, float]] = field(default_factory=list)
     plages_repos_s: list[tuple[float, float]] = field(default_factory=list)
     zero_au_debut: bool = False
@@ -139,9 +142,12 @@ class ZonesFichier:
                 detail += f" ({montees} ↑ / {descentes} ↓)"
             morceaux.append(detail)
         if self.plage_dynamique is not None:
+            n = len(self.plages_dynamiques_s) or 1
             detail = f"dynamique {self.duree_dynamique_s:.0f} s"
-            if self.plages_ecartees:
-                detail += f" (retenue sur {len(self.plages_ecartees) + 1} candidates)"
+            if n > 1:
+                detail += f" en {n} fenêtres"
+            if self.plages_ecartees_s:
+                detail += f" ({len(self.plages_ecartees_s)} écartée(s))"
             morceaux.append(detail)
         if self.alimente_derive_zero:
             morceaux.append("zéros début et fin")
@@ -166,16 +172,20 @@ def detecter(donnees, cfg: Config) -> ZonesFichier:
     def _en_secondes(plage: tuple[int, int]) -> tuple[float, float]:
         return (float(t[plage[0]]), float(t[plage[1] - 1]))
 
-    candidates = M.plages_dynamiques(
+    retenues, ecartees = M.plages_exploitables(
         t, reference, cfg.pleine_echelle_Nm, cfg.intercorrelation
     )
-    if candidates:
-        plage = candidates[0]
+    if retenues:
+        plage = retenues[0]
         zones.plage_dynamique = plage
         zones.plage_dynamique_s = _en_secondes(plage)
-        zones.duree_dynamique_s = float(t[plage[1] - 1] - t[plage[0]])
-        zones.plages_ecartees = candidates[1:]
-        zones.plages_ecartees_s = [_en_secondes(p) for p in candidates[1:]]
+        zones.plages_dynamiques_s = [_en_secondes(p) for p in retenues]
+        # La durée annoncée est celle de l'ENSEMBLE des fenêtres corrélées.
+        zones.duree_dynamique_s = float(
+            sum(t[b - 1] - t[a] for a, b in retenues)
+        )
+        zones.plages_ecartees = ecartees
+        zones.plages_ecartees_s = [_en_secondes(p) for p in ecartees]
 
     zones.plages_repos = M.plages_de_repos(
         t, reference, donnees.regime, cfg.pleine_echelle_Nm, cfg.zero

@@ -214,6 +214,28 @@ intercorrelation:
   n_blocs_coherence: 4
   accord_blocs_max_ms: 20.0
 
+  # TOUTES les plages dynamiques d'un fichier sont corrélées, et le retard
+  # retenu est la MÉDIANE des retards par fenêtre : un relevé de quatre départs
+  # arrêtés porte quatre mesures du même retard, et l'écart entre elles est une
+  # reproductibilité réelle, bien plus parlante qu'un découpage artificiel.
+  #
+  # Sont écartées les fenêtres dont le score `amplitude × √durée` tombe sous
+  # cette fraction de la meilleure : sur un relevé long, une portion de bruit
+  # franchit le seuil d'activité sans rien apprendre du retard.
+  fraction_score_min: 0.25
+
+  # Durée minimale d'une fenêtre pour être corrélée. `null` applique la règle
+  # par défaut : dix fois `retard_max_ms`, avec un plancher de 2 s.
+  #
+  # ⚠️ VERROU À CONNAÎTRE SUR LES DÉPARTS ARRÊTÉS. Avec 500 ms de retard
+  # maximal, il exige 5 s ; or un front de départ arrêté n'est « actif » que
+  # deux à quatre secondes. Les fronts sont alors tous écartés, et le retard
+  # finit par se lire sur une portion plus longue mais bien moins informative.
+  # Sur une campagne de DA, l'abaisser — ou réduire `retard_max_ms`, qui le
+  # pilote — est le premier réglage à revoir. La figure des zones montre
+  # immédiatement si les fronts sont devenus des fenêtres.
+  duree_min_fenetre_s: null
+
 # --- Relevés de zéro --------------------------------------------------------
 zero:
   duree_fenetre_s: 5.0

@@ -423,14 +423,28 @@ def section_detail_acquisitions(campagne: ResultatCampagne) -> str:
                 f"{rec.dispersion_blocs_ms:.0f} ms d'étendue"
                 if rec.faiblement_identifie else ""
             )
+            fenetres = (
+                f"{len(rec.fenetres)} fenêtres, {rec.duree_fenetre_s:.0f} s au total"
+                if len(rec.fenetres) > 1
+                else f"1 fenêtre de {rec.duree_fenetre_s:.0f} s "
+                     f"[{rec.fenetre[0]:.0f}–{rec.fenetre[1]:.0f} s]"
+            )
             detail.append(
                 f"- Recalage `{nom}` : {rec.retard_ms:+.1f} ms "
-                f"(r = {rec.correlation_pic:.3f}, fenêtre {rec.duree_fenetre_s:.0f} s "
-                f"[{rec.fenetre[0]:.0f}–{rec.fenetre[1]:.0f} s], passe-haut "
-                f"{rec.coupure_passe_haut_Hz:.2f} Hz, RMS résidu "
+                f"(médiane sur {fenetres}, r = {rec.correlation_pic:.3f}, "
+                f"dispersion {rec.dispersion_blocs_ms:.1f} ms {rec.source_dispersion}, "
+                f"passe-haut {rec.coupure_passe_haut_Hz:.2f} Hz, RMS résidu "
                 f"{rec.rms_residu_avant_Nm:.1f} → {rec.rms_residu_apres_Nm:.1f} N·m)"
                 + reserve
             )
+            if len(rec.fenetres) > 1:
+                detail.append(
+                    "  - par fenêtre : "
+                    + " ; ".join(
+                        f"{f[0]:.0f}–{f[1]:.0f} s : {retard:+.1f} ms"
+                        for f, retard, _ in rec.fenetres
+                    )
+                )
     for nom, d in sorted(derives.items()):
         detail.append(
             f"- Dérive de zéro `{nom}` : {d.derive_pc_pe:+.3f} % PE "
