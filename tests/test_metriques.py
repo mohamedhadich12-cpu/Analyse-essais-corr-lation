@@ -587,3 +587,136 @@ def test_une_courbe_seule_est_nommee_par_le_titre_sans_legende():
     ax = figure.axes[0]
     assert ax.get_title(loc="left") == "couple"
     assert ax.get_legend() is None
+
+
+class _ZonesFactices:
+    """Zones minimales, en secondes, telles que la détection les publie."""
+
+    paliers = ()
+    plages_dynamiques_s = ((10.0, 20.0), (50.0, 62.0))
+    plages_ecartees_s = ((70.0, 80.0),)
+    plages_repos_s = ((90.0, 99.0),)
+
+
+def test_les_zones_visibles_sont_rognees_a_la_fenetre_affichee():
+    """Une bande à cheval sur le bord est rognée ; une bande hors champ disparaît."""
+    from amdec_correlation import graphiques
+
+    t = np.linspace(15.0, 55.0, 400)  # ne montre qu'une partie des deux plages
+    bandes = graphiques.zones_visibles(t, _ZonesFactices(), None)
+
+    familles = [cle for _, _, cle in bandes]
+    assert familles == ["dynamique", "dynamique"], (
+        "les plages de repos et écartées sont hors de la fenêtre : elles ne "
+        "doivent ni être tracées, ni entrer en légende"
+    )
+    assert bandes[0][:2] == (15.0, 20.0)  # rognée à gauche
+    assert bandes[1][:2] == (50.0, 55.0)  # rognée à droite
+
+
+def test_les_zones_visibles_se_restreignent_aux_familles_demandees():
+    from amdec_correlation import graphiques
+
+    t = np.linspace(0.0, 100.0, 1000)
+    toutes = graphiques.zones_visibles(t, _ZonesFactices(), None)
+    repos = graphiques.zones_visibles(t, _ZonesFactices(), ["repos"])
+
+    assert len(toutes) == 4
+    assert [cle for _, _, cle in repos] == ["repos"]
+
+
+def test_le_trace_interactif_reprend_la_composition_du_trace_fixe():
+    """Mêmes panneaux, mêmes couleurs, mêmes zones : sinon les deux se contredisent.
+
+    L'onglet propose les deux rendus sur les mêmes tableaux. S'ils divergeaient,
+    le contrôle visuel ne prouverait plus rien — c'est tout son objet.
+    """
+    from amdec_correlation import graphiques
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    t = np.linspace(0.0, 100.0, 500)
+    courbes = {"couple_G": 100 * np.sin(t), "couple_D": 100 * np.cos(t),
+               "regime": 2000 + 500 * np.sin(t)}
+    unites = {"couple_G": "N.m", "couple_D": "N.m", "regime": "rpm"}
+    zones, familles = _ZonesFactices(), ["dynamique", "repos"]
+
+    fixe = graphiques.figure_visualisation(t, courbes, unites, zones=zones,
+                                           types_zones=familles)
+    vif = GI.figure_visualisation(t, courbes, unites, zones=zones,
+                                  types_zones=familles)
+
+    # Deux unités → deux panneaux, dans les deux rendus.
+    assert len(fixe.axes) == 2
+    assert len({trace.yaxis for trace in vif.data if trace.x is not None
+                and len(trace.x)}) == 2
+
+    couleurs_fixes = {ligne.get_label(): ligne.get_color()
+                      for ax in fixe.axes for ligne in ax.get_lines()}
+    couleurs_vives = {trace.name: trace.line.color for trace in vif.data
+                      if trace.name in courbes}
+    assert couleurs_vives == couleurs_fixes, "une couleur suit un canal, pas un rendu"
+
+    # Trois bandes visibles (deux dynamiques, une de repos), posées sur chacun
+    # des deux panneaux.
+    attendues = len(graphiques.zones_visibles(t, zones, familles))
+    assert attendues == 3
+    assert len(vif.layout.shapes) == attendues * 2
+
+
+def test_le_glisser_bascule_entre_zoom_et_designation_de_plage():
+    """Deux gestes distincts : agrandir l'existant, ou redemander des points."""
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    t = np.linspace(0.0, 10.0, 200)
+    courbes, unites = {"couple": np.sin(t)}, {"couple": "N.m"}
+
+    zoom = GI.figure_visualisation(t, courbes, unites, glisser="zoom")
+    plage = GI.figure_visualisation(t, courbes, unites, glisser="select")
+
+    assert zoom.layout.dragmode == "zoom"
+    assert plage.layout.dragmode == "select"
+    # Une plage de temps, jamais une bande de valeurs : la sélection verticale
+    # n'aurait aucun sens pour recadrer l'axe des temps.
+    assert plage.layout.selectdirection == "h"
+
+
+def test_le_curseur_de_mesure_rend_un_echantillon_reel_jamais_interpole():
+    """« N'invente aucune valeur » : la lecture au curseur ne fait pas exception."""
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    t = np.array([0.0, 0.1, 0.2, 0.3])
+    courbes = {"couple": np.array([0.0, 10.0, 20.0, 30.0])}
+
+    # Un instant demandé entre deux échantillons : on rend celui qui existe.
+    instant, valeurs = GI.lire_au_curseur(t, courbes, 0.14)
+    assert instant == pytest.approx(0.1)
+    assert valeurs["couple"] == pytest.approx(10.0), (
+        "14 N·m serait une interpolation : cette valeur n'a jamais été mesurée"
+    )
+
+
+def test_sans_plotly_le_trace_interactif_le_dit_et_ne_trace_pas(monkeypatch):
+    """La dépendance est facultative : son absence s'explique, elle ne plante pas."""
+    from amdec_correlation import graphiques_interactifs as GI
+
+    monkeypatch.setattr(GI, "go", None)
+    monkeypatch.setattr(GI, "_ABSENCE", "No module named 'plotly'")
+
+    disponible, raison = GI.disponible()
+    assert disponible is False
+    assert "pip install plotly" in raison, "la raison doit dire quoi faire"
+
+    with pytest.raises(RuntimeError, match="plotly"):
+        GI.figure_visualisation(np.linspace(0, 1, 10), {"c": np.zeros(10)}, {"c": ""})

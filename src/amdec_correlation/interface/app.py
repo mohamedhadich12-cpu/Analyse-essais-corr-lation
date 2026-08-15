@@ -32,6 +32,7 @@ if str(_RACINE_PROJET / "src") not in sys.path:
 
 from amdec_correlation import analyse as A  # noqa: E402
 from amdec_correlation import graphiques  # noqa: E402
+from amdec_correlation import graphiques_interactifs as GI  # noqa: E402
 from amdec_correlation import inventaire as I  # noqa: E402
 from amdec_correlation import lecteurs  # noqa: E402
 from amdec_correlation import rapport as R  # noqa: E402
@@ -283,6 +284,12 @@ def _valeur(x: float, decimales: int = 3, signe: bool = False, suffixe: str = ""
 # peuvent pas occuper le même pixel.
 MAX_POINTS_TRACES = 5000
 
+# Le tracé interactif, lui, se zoome : les points en trop d'aujourd'hui sont
+# ceux qu'on regardera de près tout à l'heure. On en envoie donc davantage,
+# quitte à basculer en rendu WebGL au-delà du seuil.
+MAX_POINTS_INTERACTIF = 20000
+DENSITES = (5000, 10000, 20000, 50000, 100000)
+
 # Chaque combinaison consomme un emplacement de couleur : au-delà, le tracé
 # n'est plus lisible avant même d'ajouter un canal brut.
 MAX_DERIVEES = 4
@@ -375,6 +382,195 @@ def figure_zones_png(nom: str, zones, signaux: dict, pe: float,
     return tampon.getvalue()
 
 
+def _options_affichage(interactif_ok: bool, raison: str) -> dict:
+    """Réglages du tracé : mode, curseur, densité de points, échelle.
+
+    Rassemblés dans un volet replié : ce sont des réglages de confort, et les
+    laisser dépliés en permanence repousserait le tracé — la seule chose qu'on
+    vient voir — sous une page de cases à cocher.
+    """
+    with st.expander("Options d'affichage — zoom, curseur, densité", expanded=False):
+        if not interactif_ok:
+            st.info(raison)
+        else:
+            st.caption(
+                "**Zoom** : glisser un rectangle sur le tracé, ou la molette. "
+                "**Déplacer** : outil main de la barre d'outils. "
+                "**Revenir au cadrage d'origine** : double-clic. "
+                "**Masquer une courbe** : clic sur son nom dans la légende. "
+                "L'axe des temps est partagé — zoomer un panneau cadre tous les "
+                "autres au même instant."
+            )
+        modes = ["Interactif", "Image fixe"] if interactif_ok else ["Image fixe"]
+        if st.session_state.get("vue::mode") not in modes:
+            # Plotly désinstallé entre deux sessions : sans cela, Streamlit
+            # refuserait une valeur mémorisée absente de la liste.
+            st.session_state.pop("vue::mode", None)
+        mode = st.radio(
+            "Mode de tracé", modes, key="vue::mode", horizontal=True,
+            help="L'image fixe est celle qui part dans le rapport : reproductible, "
+            "indépendante du navigateur. L'interactif sert à l'examen à l'écran.",
+        )
+        interactif = mode == "Interactif"
+
+        c1, c2 = st.columns(2)
+        with c1:
+            libelle_curseur = st.selectbox(
+                "Curseur de lecture", list(GI.CURSEURS.values()),
+                key="vue::curseur", disabled=not interactif,
+                help="La ligne verticale suit le pointeur et liste toutes les "
+                "courbes à cet instant ; la croix ne donne que la valeur la plus "
+                "proche du pointeur, mais sur les deux axes.",
+            )
+            curseur = next(k for k, v in GI.CURSEURS.items() if v == libelle_curseur)
+        with c2:
+            densite = st.select_slider(
+                "Points envoyés au tracé, au maximum", options=DENSITES,
+                value=MAX_POINTS_INTERACTIF, key="vue::densite",
+                disabled=not interactif,
+                help="Le zoom du navigateur agrandit les points déjà envoyés ; il "
+                "n'en rétablit aucun. Monter cette densité donne de la marge au "
+                "zoom, au prix d'un tracé plus lourd à afficher.",
+            )
+
+        libelle_glisser = st.selectbox(
+            "Glisser sur le tracé", list(GI.GLISSERS.values()),
+            key="vue::glisser", disabled=not interactif,
+            help="Le zoom du navigateur agrandit les points déjà envoyés. "
+            "« Relire à pleine finesse » recadre au contraire la plage de temps "
+            "et relit le fichier : c'est le seul geste qui fasse apparaître des "
+            "points que la décimation avait laissés de côté.",
+        )
+        glisser = next(k for k, v in GI.GLISSERS.items() if v == libelle_glisser)
+
+        c3, c4 = st.columns(2)
+        with c3:
+            marqueurs = _case(
+                "Matérialiser les points tracés", "vue::marqueurs", False,
+                "Au zoom, c'est le seul moyen de distinguer un signal réellement "
+                "échantillonné d'une droite tirée entre deux points éloignés.",
+            )
+        with c4:
+            y_a_zero = _case(
+                "Axes verticaux englobant le zéro", "vue::y0", False,
+                "Sans lui, deux couples de 900 et 910 N·m paraissent séparés d'un "
+                "gouffre : l'échelle part du minimum affiché, pas de zéro.",
+            )
+
+        mesure = _case(
+            "Curseurs de mesure (Δt entre deux instants)", "vue::mesure", False,
+            "Pose deux verticales et relève, pour chaque courbe, la valeur à "
+            "l'échantillon le plus proche de chacune — de quoi mesurer un écart "
+            "de temps ou d'amplitude sans le lire à l'œil sur l'axe.",
+        )
+    return {
+        "interactif": interactif, "curseur": curseur, "densite": int(densite),
+        "marqueurs": marqueurs, "y_a_zero": y_a_zero, "mesure": mesure,
+        "glisser": glisser,
+    }
+
+
+def _curseurs_de_mesure(fichier: Path, debut: float, fin: float) -> list[float]:
+    """Les deux instants réglables, posés au-dessus du tracé comme les autres réglages.
+
+    Le relevé, lui, s'affiche **sous** la figure : c'est un résultat, pas une
+    commande.
+    """
+    st.markdown("**Curseurs de mesure**")
+    bornes = dict(min_value=float(debut), max_value=float(fin), step=0.01,
+                  format="%.3f")
+    defauts = (debut + 0.25 * (fin - debut), debut + 0.75 * (fin - debut))
+    instants: list[float] = []
+    colonnes = st.columns(2)
+    for i, (colonne, defaut) in enumerate(zip(colonnes, defauts), start=1):
+        cle = f"vue::curseur{i}::{fichier.name}"
+        # La plage affichée a pu se resserrer depuis le dernier passage : on
+        # ramène la valeur mémorisée dans les bornes AVANT de créer le widget,
+        # sans quoi Streamlit refuse une valeur hors bornes.
+        if cle in st.session_state:
+            st.session_state[cle] = float(
+                min(max(float(st.session_state[cle]), debut), fin)
+            )
+        with colonne:
+            instants.append(float(st.number_input(
+                f"Instant t{i} (s)", value=float(defaut), key=cle, **bornes,
+            )))
+    return instants
+
+
+def _relever_aux_curseurs(t: np.ndarray, courbes: dict[str, np.ndarray],
+                          unites: dict[str, str], instants: list[float]) -> None:
+    """Valeur de chaque courbe aux deux instants, et écart entre les deux.
+
+    Les valeurs sont lues sur le signal **à pleine résolution**, jamais sur le
+    tracé décimé, et sans interpolation : c'est l'échantillon le plus proche
+    qui est rendu, avec son instant réel. Un nombre interpolé n'aurait été
+    mesuré nulle part — et c'est bien une mesure qu'on lit ici.
+    """
+    (t1_reel, v1), (t2_reel, v2) = [
+        GI.lire_au_curseur(t, courbes, instant) for instant in instants
+    ]
+    st.metric("Δt = t₂ − t₁", f"{(t2_reel - t1_reel) * 1000.0:+.1f} ms",
+              help="Écart entre les deux échantillons réellement relevés, qui ne "
+              "tombent pas exactement sur les instants demandés.")
+    st.dataframe(
+        [
+            {
+                "Courbe": nom,
+                "Unité": unites.get(nom, "") or "—",
+                f"à t₁ = {t1_reel:.3f} s": round(v1[nom], 3),
+                f"à t₂ = {t2_reel:.3f} s": round(v2[nom], 3),
+                "Δ (t₂ − t₁)": round(v2[nom] - v1[nom], 3),
+            }
+            for nom in courbes
+        ],
+        use_container_width=True, hide_index=True,
+    )
+    st.caption(
+        "Valeurs relevées à l'échantillon le plus proche de chaque instant, sur "
+        "le signal à pleine résolution — jamais interpolées, et jamais lues sur "
+        "le tracé allégé."
+    )
+
+
+def _recadrer_sur_selection(fichier: Path, etat, debut: float, fin: float,
+                            t_min: float, t_max: float) -> None:
+    """Rejoue le tracé sur la plage sélectionnée au rectangle, à pleine finesse.
+
+    C'est la réponse à la limite du zoom navigateur : lui agrandit les points
+    déjà envoyés, alors qu'un recadrage relit le fichier sur la plage retenue
+    et décime beaucoup moins. Sélectionner devient donc un vrai zoom, qui
+    apporte des points au lieu de grossir les anciens.
+
+    La valeur ne peut pas être écrite directement dans la clé du curseur de
+    plage : il est déjà instancié dans ce passage. On la dépose en attente, et
+    c'est le passage suivant qui l'applique.
+    """
+    selection = (etat or {}).get("selection") or {}
+    boites = selection.get("box") or []
+    if not boites:
+        return
+    x = boites[0].get("x") or []
+    if len(x) < 2:
+        return
+    plage = (max(float(min(x)), t_min), min(float(max(x)), t_max))
+    if plage[1] - plage[0] <= 0:
+        return
+    # La sélection reste posée sur le tracé après le recadrage : sans mémoire,
+    # elle serait rejouée à chaque passage et l'application bouclerait. On
+    # retient la plage ET la fenêtre depuis laquelle elle a été prise, pour que
+    # la même sélection reprise depuis une autre fenêtre agisse de nouveau.
+    memoire = f"vue::selection::{fichier.name}"
+    trace = (plage, debut, fin)
+    if st.session_state.get(memoire) == trace:
+        return
+    st.session_state[memoire] = trace
+    if abs(plage[0] - debut) < 1e-9 and abs(plage[1] - fin) < 1e-9:
+        return  # la sélection recouvre déjà la fenêtre affichée
+    st.session_state[f"vue::plage_attendue::{fichier.name}"] = plage
+    st.rerun()
+
+
 def tracer_visualisation(
     fichier: Path, noms: list[str], catalogue: dict[str, str],
     derivees: list[tuple[str, str, str]],
@@ -391,7 +587,17 @@ def tracer_visualisation(
     familles de `types_zones` : confronter la détection à n'importe quel canal —
     les plages de repos au régime, par exemple — est le seul contrôle qui ne
     dépende pas du couple.
+
+    Deux rendus sont proposés, sur les mêmes tableaux : une image fixe, celle
+    qui part dans le rapport, et un tracé interactif pour l'examen à l'écran.
     """
+    # Recadrage demandé au rectangle lors du passage précédent : il doit être
+    # posé AVANT que le curseur de plage ne soit créé, un widget déjà instancié
+    # n'acceptant plus qu'on écrive dans sa clé.
+    attente = st.session_state.pop(f"vue::plage_attendue::{fichier.name}", None)
+    if attente is not None:
+        st.session_state[f"vue::plage::{fichier.name}"] = attente
+
     try:
         with st.spinner("Lecture du fichier (lecture seule)…"):
             signaux = lecteurs.charger_canaux(
@@ -413,6 +619,14 @@ def tracer_visualisation(
         help="Resserrer la plage est le seul moyen de voir un détail rapide : "
         "à l'échelle d'un cycle entier, quelques dizaines de millisecondes sont invisibles.",
     )
+    if (debut, fin) != (borne_min, borne_max):
+        if st.button("Revenir à la durée entière", key=f"vue::plein::{fichier.name}"):
+            st.session_state.pop(f"vue::selection::{fichier.name}", None)
+            st.session_state[f"vue::plage_attendue::{fichier.name}"] = (
+                borne_min, borne_max
+            )
+            st.rerun()
+
     fenetre = (t >= debut) & (t <= fin)
     if fenetre.sum() < 2:
         st.warning("Plage trop étroite.")
@@ -430,25 +644,114 @@ def tracer_visualisation(
         courbes[etiquette] = courbes[canal_a] + signe * courbes[canal_b]
         unites[etiquette] = catalogue.get(canal_a, "")
 
-    pas = max(1, int(np.ceil(fenetre.sum() / MAX_POINTS_TRACES)))
-    figure = graphiques.figure_visualisation(
-        t[fenetre][::pas],
-        {nom: valeurs[::pas] for nom, valeurs in courbes.items()},
-        unites,
-        titre=f"{fichier.name}  —  {fin - debut:.1f} s affichées",
-        decimation=pas,
-        zones=zones,
-        types_zones=types_zones,
-    )
-    st.pyplot(figure, use_container_width=True)
+    options = _options_affichage(*GI.disponible())
+    titre = f"{fichier.name}  —  {fin - debut:.1f} s affichées"
+    t_affiche = t[fenetre]
 
+    reperes = _curseurs_de_mesure(fichier, debut, fin) if options["mesure"] else []
+
+    plafond = options["densite"] if options["interactif"] else MAX_POINTS_TRACES
+    pas = max(1, int(np.ceil(t_affiche.size / plafond)))
+    t_trace = t_affiche[::pas]
+    courbes_tracees = {nom: valeurs[::pas] for nom, valeurs in courbes.items()}
+
+    if options["interactif"]:
+        figure = GI.figure_visualisation(
+            t_trace, courbes_tracees, unites, titre=titre, decimation=pas,
+            zones=zones, types_zones=types_zones, curseur=options["curseur"],
+            marqueurs=options["marqueurs"], y_a_zero=options["y_a_zero"],
+            reperes=reperes, glisser=options["glisser"],
+        )
+        etat = _afficher_interactif(figure, fichier)
+        if options["glisser"] == "select":
+            _recadrer_sur_selection(fichier, etat, debut, fin, borne_min, borne_max)
+            st.caption(
+                "Glisser sur le tracé **recadre la plage de temps et relit le "
+                "fichier** sur cet intervalle : c'est le seul zoom qui apporte "
+                "des points au lieu d'agrandir les existants."
+            )
+        _exporter_png(fichier, t_trace, courbes_tracees, unites, titre, pas,
+                      zones, types_zones)
+    else:
+        figure = graphiques.figure_visualisation(
+            t_trace, courbes_tracees, unites, titre=titre, decimation=pas,
+            zones=zones, types_zones=types_zones,
+        )
+        st.pyplot(figure, use_container_width=True)
+        st.download_button(
+            "Télécharger ce tracé (.png)", data=_png(figure),
+            file_name=f"{fichier.stem}_visualisation.png", mime="image/png",
+        )
+        plt.close(figure)
+
+    if reperes:
+        # Sous la figure : le relevé est un résultat, pas une commande. Il porte
+        # sur `t_affiche`, recadré mais NON décimé — la valeur affichée est celle
+        # du fichier, pas celle du dessin.
+        _relever_aux_curseurs(t_affiche, courbes, unites, reperes)
+
+    st.caption(signaux.diagnostic.resume())
+
+
+def _png(figure) -> bytes:
+    """Image fixe d'une figure matplotlib, en mémoire."""
     tampon = io.BytesIO()
     figure.savefig(tampon, format="png", dpi=150, bbox_inches="tight")
-    st.download_button(
-        "Télécharger ce tracé (.png)", data=tampon.getvalue(),
-        file_name=f"{fichier.stem}_visualisation.png", mime="image/png",
-    )
-    st.caption(signaux.diagnostic.resume())
+    return tampon.getvalue()
+
+
+def _exporter_png(fichier: Path, t, courbes, unites, titre: str, pas: int,
+                  zones, types_zones) -> None:
+    """Export image du tracé interactif, préparé seulement sur demande.
+
+    L'image de rapport reste celle de matplotlib, y compris quand on regarde le
+    tracé interactif : c'est elle qui est reproductible hors navigateur. Mais
+    la rendre à chaque passage coûterait une seconde à chaque déplacement de
+    curseur — donc à chaque geste du mode interactif, dont c'est précisément
+    l'intérêt. On ne la fabrique qu'au moment où elle est demandée.
+    """
+    signature = (str(fichier), titre, pas, tuple(courbes), tuple(types_zones or ()))
+    cle = f"vue::png::{fichier.name}"
+    pret = st.session_state.get(cle)
+    if pret is not None and pret[0] != signature:
+        pret = None  # le tracé a changé depuis : l'image en cache mentirait
+        st.session_state.pop(cle, None)
+
+    colonne_gauche, colonne_droite = st.columns([1, 2])
+    with colonne_gauche:
+        if st.button("Préparer l'image fixe (.png)", key=f"vue::gen::{fichier.name}",
+                     help="Le mode interactif exporte aussi en PNG par l'appareil "
+                     "photo de sa barre d'outils ; ce bouton-ci produit l'image "
+                     "de rapport, identique au mode « Image fixe »."):
+            figure = graphiques.figure_visualisation(
+                t, courbes, unites, titre=titre, decimation=pas, zones=zones,
+                types_zones=types_zones,
+            )
+            st.session_state[cle] = (signature, _png(figure))
+            plt.close(figure)
+            pret = st.session_state[cle]
+    if pret is not None:
+        with colonne_droite:
+            st.download_button(
+                "Télécharger ce tracé (.png)", data=pret[1],
+                file_name=f"{fichier.stem}_visualisation.png", mime="image/png",
+            )
+
+
+def _afficher_interactif(figure, fichier: Path):
+    """Pose le tracé interactif, et récupère la sélection au rectangle.
+
+    `on_select` n'existe pas sur les Streamlit antérieurs à 1.35 : on retombe
+    alors sur un tracé sans recadrage plutôt que de refuser de tracer.
+    """
+    try:
+        return st.plotly_chart(
+            figure, key=f"vue::graphe::{fichier.name}", on_select="rerun",
+            selection_mode="box", config=GI.CONFIG_MODEBAR,
+        )
+    except TypeError:
+        st.plotly_chart(figure, config=GI.CONFIG_MODEBAR)
+        return None
 
 
 def _appliquer_inventaire(inventaire: dict[str, dict]) -> None:

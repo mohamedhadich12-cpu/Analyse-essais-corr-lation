@@ -106,11 +106,42 @@ Six onglets suivent le déroulé de l'analyse :
 | Onglet | Ce qu'on y fait |
 |---|---|
 | **1 · Exploration** | lit les acquisitions et liste les canaux présents, avec unités, cadences et diagnostic de base de temps |
-| **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux et resserrement de la plage de temps. Jusqu'à quatre **courbes dérivées** (somme ou différence de deux canaux) se tracent dans le **même graphe** que les canaux bruts : deux sommes en N·m se comparent donc sur la même échelle. Les courbes sont groupées **par unité**, un panneau par unité. Les **zones détectées** peuvent y être superposées, **famille par famille** — un balayage compte des dizaines de paliers, les afficher tous rendrait le tracé illisible |
+| **2 · Visualisation** | trace n'importe quel canal en fonction du temps, **fichier par fichier**, avec choix libre des canaux et resserrement de la plage de temps. Jusqu'à quatre **courbes dérivées** (somme ou différence de deux canaux) se tracent dans le **même graphe** que les canaux bruts : deux sommes en N·m se comparent donc sur la même échelle. Les courbes sont groupées **par unité**, un panneau par unité. Les **zones détectées** peuvent y être superposées, **famille par famille** — un balayage compte des dizaines de paliers, les afficher tous rendrait le tracé illisible. Le tracé est **manipulable** : zoom, déplacement, curseur de lecture, curseurs de mesure (cf. ci-dessous) |
 | **3 · Canaux** | associe chaque rôle à un canal réel, par **liste déroulante peuplée des noms trouvés** — plus de libellé à recopier. Par défaut le mapping est **commun à toute la campagne** : les libellés étant généralement identiques d'un essai à l'autre, il n'y a aucune raison de les redéclarer dossier par dossier. Décocher la case rétablit un mapping par dossier |
 | **4 · Zones détectées** | montre, acquisition par acquisition, ce qui a été trouvé et ce que chacune alimente. Le tableau dit **combien**, une figure par acquisition dit **où** — chaque zone en aplat de fond, identifiée par son type. **Rien à déclarer** : c'est un relevé à vérifier, pas une saisie. Automatique ne veut pas dire opaque — si un fichier n'alimente pas ce qu'on en attendait, les seuils se règlent à l'onglet suivant |
 | **5 · Hypothèses** | toutes les bornes de traitement (ce sont elles qui décident de la détection des zones), et les deux saisies utilisateur |
 | **6 · Analyse & résultats** | lance l'analyse, puis affiche tableau récapitulatif, conclusions, figures, bilan d'incertitude, paramètres de cartes de contrôle et détail par essai |
+
+### Examiner un tracé de près
+
+L'onglet *Visualisation* propose deux rendus des **mêmes tableaux**, choisis dans
+le volet *Options d'affichage* :
+
+* l'**image fixe** — celle qui part dans le rapport : reproductible, indépendante
+  du navigateur ;
+* le **tracé interactif** — pour l'examen à l'écran. Zoom au rectangle et à la
+  molette, déplacement, double-clic pour revenir au cadrage d'origine, clic sur
+  la légende pour masquer une courbe. L'axe des temps est partagé : zoomer un
+  panneau cadre tous les autres au même instant.
+
+Trois réglages méritent d'être connus :
+
+| Réglage | Ce qu'il apporte |
+|---|---|
+| **Curseur de lecture** | une verticale suit le pointeur et liste **toutes les courbes** à cet instant, unité comprise. En mode *croix*, la valeur la plus proche du pointeur, sur les deux axes |
+| **Curseurs de mesure** | deux instants réglables, l'écart **Δt en millisecondes** entre eux, et pour chaque courbe la valeur relevée à chacun. Les valeurs sont lues sur le signal **à pleine résolution et sans interpolation** : c'est l'échantillon le plus proche qui est rendu, avec son instant réel — un nombre interpolé n'aurait été mesuré nulle part |
+| **Glisser sur le tracé** | soit *zoomer*, soit **relire la plage à pleine finesse**. Le second recadre la plage de temps et **relit le fichier** sur cet intervalle |
+
+⚠️ **Le zoom du navigateur agrandit les points déjà envoyés ; il n'en rétablit
+aucun.** Le tracé est allégé par décimation quand l'acquisition est longue, et le
+zoom ne fait pas réapparaître les points laissés de côté — la mention portée sous
+la figure le rappelle. Pour retrouver la finesse réelle du signal, il faut
+**resserrer la plage de temps** (curseur, ou glisser en mode *relire à pleine
+finesse*) : c'est alors le fichier qui est relu, et décimé beaucoup moins.
+
+Le tracé interactif demande la bibliothèque **plotly**
+(`python -m pip install plotly`). Sans elle, l'onglet trace la même chose en
+image fixe et le dit. **Aucun calcul n'en dépend** : c'est une commodité d'écran.
 
 L'interface **ne contient aucun traitement** : elle assemble une configuration,
 appelle la même bibliothèque que la ligne de commande et affiche ce qui en sort.

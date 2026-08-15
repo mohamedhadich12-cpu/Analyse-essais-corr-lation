@@ -499,72 +499,100 @@ TYPES_ZONES: dict[str, str] = {
 # paliers se demandent explicitement, ce sont eux qui encombrent.
 TYPES_ZONES_DEFAUT = ("dynamique", "repos")
 
+# Teinte d'aplat par famille. `None` signale les hachures : la plage écartée
+# doit se distinguer de la plage retenue sans lui disputer la lisibilité.
+TEINTES_ZONES: dict[str, str | None] = {
+    "montee": TEINTE_MONTEE,
+    "descente": TEINTE_DESCENTE,
+    "indetermine": TEINTE_PALIER,
+    "dynamique": TEINTE_DYNAMIQUE,
+    "ecartee": None,
+    "repos": TEINTE_REPOS,
+}
+# Opacité par famille : un aplat reste un fond, jamais une donnée. Les paliers
+# sont les plus nombreux, la plage dynamique la plus large — d'où des valeurs
+# différentes, réglées pour que la courbe reste lisible par-dessus.
+OPACITE_ZONES: dict[str, float] = {
+    "montee": 0.22, "descente": 0.22, "indetermine": 0.22,
+    "dynamique": 0.13, "ecartee": 0.55, "repos": 0.20,
+}
 
-def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
-    """Pose les zones détectées en aplats de fond sur un axe temporel.
 
-    `types` restreint l'affichage aux familles demandées (clés de `TYPES_ZONES`) ;
-    `None` les affiche toutes. Les zones hors de la fenêtre de temps affichée
-    sont ignorées, et celles qui la chevauchent sont rognées.
+def zones_visibles(t, zones, types: Sequence[str] | None = None
+                   ) -> list[tuple[float, float, str]]:
+    """Bandes de zones réellement visibles dans la fenêtre `t`, déjà rognées.
 
-    Tout est repéré en **secondes**, jamais en indices : le tracé peut être
-    décimé, recadré, ou porter une grille de temps différente de celle sur
-    laquelle la détection a tourné — un indice n'y survivrait pas, un instant
-    si.
+    Renvoie `[(début, fin, famille), …]` en **secondes**, dans l'ordre de
+    lecture. `types` restreint aux familles demandées (clés de `TYPES_ZONES`) ;
+    `None` les prend toutes. Les zones hors de la fenêtre affichée sont
+    écartées, celles qui la chevauchent sont rognées à ses bornes.
 
-    Renvoie les familles effectivement tracées, sous la forme
-    `{clé: (teinte ou None, libellé)}` — la teinte vaut `None` pour les hachures,
-    qui n'ont pas d'aplat. L'appelant s'en sert pour composer sa légende : une
-    couleur sans libellé ne porterait aucune information.
+    Tout est repéré en secondes, jamais en indices : le tracé peut être décimé,
+    recadré, ou porter une grille de temps différente de celle sur laquelle la
+    détection a tourné — un indice n'y survivrait pas, un instant si.
+
+    Cette géométrie est calculée **une seule fois pour tous les rendus** : le
+    tracé fixe et le tracé interactif consomment la même liste. Deux rendus qui
+    rogneraient chacun à leur façon finiraient par se contredire, et l'onglet
+    ne servirait plus à vérifier quoi que ce soit.
     """
     demandes = set(TYPES_ZONES) if types is None else set(types)
-    presents: dict[str, tuple[str | None, str]] = {}
     if zones is None or t.size < 2:
-        return presents
+        return []
     t0, t1 = float(t[0]), float(t[-1])
     etendue = (t1 - t0) or 1.0
+    bandes: list[tuple[float, float, str]] = []
 
-    def _aplat(debut: float, fin: float, teinte: str | None, cle: str,
-               alpha: float) -> None:
+    def _ajouter(debut: float, fin: float, cle: str) -> None:
         if cle not in demandes or fin < t0 or debut > t1:
-            # Hors de la fenêtre affichée : ne rien tracer, et surtout ne pas
-            # inscrire la famille dans la légende — une entrée sans aplat
-            # visible ferait chercher au lecteur une zone qui n'est pas là.
+            # Hors de la fenêtre affichée : ne rien retenir, et surtout ne rien
+            # inscrire en légende — une entrée sans aplat visible ferait
+            # chercher au lecteur une zone qui n'est pas là.
             return
         debut, fin = max(debut, t0), min(fin, t1)
         # Une zone de durée nulle à l'écran ne se verrait pas : on garantit une
         # largeur minimale d'un millième de l'axe pour qu'elle reste repérable.
-        fin = max(fin, debut + etendue / 1000.0)
-        if teinte is None:
-            # Plage écartée : hachures, sans aplat, pour se distinguer de la
-            # plage retenue sans lui disputer la lisibilité.
-            ax.axvspan(debut, fin, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
-                       hatch="///", linewidth=0, alpha=0.55, zorder=1)
-        else:
-            ax.axvspan(debut, fin, color=teinte, alpha=alpha, linewidth=0, zorder=1)
-        presents.setdefault(cle, (teinte, TYPES_ZONES[cle]))
+        bandes.append((debut, max(fin, debut + etendue / 1000.0), cle))
 
     for palier in getattr(zones, "paliers", []):
         cle = palier.sens if palier.sens in ("montee", "descente") else "indetermine"
-        teinte = {"montee": TEINTE_MONTEE, "descente": TEINTE_DESCENTE}.get(
-            cle, TEINTE_PALIER
-        )
-        _aplat(palier.t_debut, palier.t_fin, teinte, cle, alpha=0.22)
+        _ajouter(palier.t_debut, palier.t_fin, cle)
 
     plages = getattr(zones, "plages_dynamiques_s", None)
     if not plages:
         plage = getattr(zones, "plage_dynamique_s", None)
         plages = [plage] if plage is not None else []
     for debut, fin in plages:
-        _aplat(debut, fin, TEINTE_DYNAMIQUE, "dynamique", alpha=0.13)
+        _ajouter(debut, fin, "dynamique")
 
     # Les plages actives écartées : montrer l'arbitrage, et pas seulement son
     # résultat, est le seul moyen de repérer un mauvais choix.
     for debut, fin in getattr(zones, "plages_ecartees_s", []):
-        _aplat(debut, fin, None, "ecartee", alpha=0.55)
+        _ajouter(debut, fin, "ecartee")
 
     for debut, fin in getattr(zones, "plages_repos_s", []):
-        _aplat(debut, fin, TEINTE_REPOS, "repos", alpha=0.20)
+        _ajouter(debut, fin, "repos")
+    return bandes
+
+
+def _superposer_zones(ax, t, zones, types: Sequence[str] | None = None) -> dict:
+    """Pose les zones détectées en aplats de fond sur un axe temporel.
+
+    Renvoie les familles effectivement tracées, sous la forme
+    `{clé: (teinte ou None, libellé)}` — la teinte vaut `None` pour les hachures,
+    qui n'ont pas d'aplat. L'appelant s'en sert pour composer sa légende : une
+    couleur sans libellé ne porterait aucune information.
+    """
+    presents: dict[str, tuple[str | None, str]] = {}
+    for debut, fin, cle in zones_visibles(t, zones, types):
+        teinte = TEINTES_ZONES[cle]
+        if teinte is None:
+            ax.axvspan(debut, fin, facecolor="none", edgecolor=TEINTE_DYNAMIQUE,
+                       hatch="///", linewidth=0, alpha=OPACITE_ZONES[cle], zorder=1)
+        else:
+            ax.axvspan(debut, fin, color=teinte, alpha=OPACITE_ZONES[cle],
+                       linewidth=0, zorder=1)
+        presents.setdefault(cle, (teinte, TYPES_ZONES[cle]))
     return presents
 
 
