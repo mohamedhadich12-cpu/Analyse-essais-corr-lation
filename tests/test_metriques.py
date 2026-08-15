@@ -87,6 +87,49 @@ def test_detection_paliers_et_sens():
     assert [p.sens for p in paliers[4:]] == ["descente"] * 3
 
 
+def test_deux_passages_au_meme_niveau_ne_font_pas_un_palier_geant():
+    """Un zéro en milieu d'essai et le zéro final restent deux paliers distincts.
+
+    La fusion sert à recoller un palier qu'une perturbation a **momentanément**
+    interrompu. Sans borne sur la durée de l'interruption, deux relevés de zéro
+    séparés par tout un cycle transitoire n'en formaient qu'un : la figure des
+    zones peignait alors une bande de palier par-dessus toute la partie
+    dynamique, et la régression recevait un point qui est la moyenne de deux
+    mesures faites à des températures différentes.
+    """
+    fe = 100.0
+    t = np.arange(0.0, 200.0, 1.0 / fe)
+    reference = np.zeros_like(t)
+    # Entre les deux passages à zéro, un cycle franchement dynamique.
+    milieu = (t > 20.0) & (t < 180.0)
+    reference[milieu] = 500.0 * np.sin(2 * np.pi * t[milieu] / 6.0)
+
+    paliers = M.detecter_paliers(t, reference, reference.copy(), PE, ParamsPaliers())
+
+    zeros = [p for p in paliers if abs(p.reference) < 5.0]
+    assert len(zeros) == 2, [f"{p.t_debut:.0f}–{p.t_fin:.0f}" for p in paliers]
+    assert zeros[0].t_fin < 25.0
+    assert zeros[1].t_debut > 175.0
+    assert all(p.t_fin - p.t_debut < 30.0 for p in paliers), (
+        "aucun palier ne doit couvrir le cycle qui sépare les deux zéros"
+    )
+
+
+def test_une_interruption_breve_recolle_bien_le_palier():
+    """Le cas que la fusion doit continuer de traiter : un à-coup passager."""
+    fe = 100.0
+    t = np.arange(0.0, 30.0, 1.0 / fe)
+    reference = np.full_like(t, 600.0)
+    # Un à-coup d'une demi-seconde au milieu d'un palier de 30 s.
+    accroc = (t > 14.8) & (t < 15.3)
+    reference[accroc] = 700.0
+
+    paliers = M.detecter_paliers(t, reference, reference.copy(), PE, ParamsPaliers())
+
+    assert len(paliers) == 1, [f"{p.t_debut:.1f}–{p.t_fin:.1f}" for p in paliers]
+    assert paliers[0].reference == pytest.approx(600.0, abs=5.0)
+
+
 def test_hysteresis_retrouve_ecart_injecte():
     niveaux = [0, 300, 600, 900, 600, 300, 0]
     t, ref = _escalier(niveaux)

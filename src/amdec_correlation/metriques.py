@@ -173,7 +173,14 @@ def regression(x: Sequence[float], y: Sequence[float]) -> Regression:
 
 @dataclass
 class Palier:
-    """Un point stabilisé : moyennes sur la partie finale de la plage stable."""
+    """Un point stabilisé : moyennes sur la partie finale de la plage stable.
+
+    `t_debut` ouvre la portion **effectivement moyennée**, pas la plage stable :
+    le transitoire d'établissement en est écarté. `t_stable_debut` garde, lui,
+    l'instant où la stabilisation a commencé — c'est le seul repère qui permette
+    de mesurer l'interruption entre deux plages, et donc de décider si elles ne
+    font qu'un.
+    """
 
     t_debut: float
     t_fin: float
@@ -185,6 +192,7 @@ class Palier:
     sens: str = "indetermine"  # "montee" | "descente"
     temperature: float | None = None
     source: str = ""
+    t_stable_debut: float = float("nan")
 
     @property
     def residu(self) -> float:
@@ -235,6 +243,7 @@ def detecter_paliers(
             Palier(
                 t_debut=float(t[debut]),
                 t_fin=float(t[i1 - 1]),
+                t_stable_debut=float(t[i0]),
                 reference=float(np.mean(reference[tranche])),
                 mesure=float(np.mean(mesure[tranche])),
                 ecart_type_mesure=float(np.std(mesure[tranche], ddof=1)),
@@ -253,19 +262,44 @@ def detecter_paliers(
 def _fusionner_paliers(
     paliers: list[Palier], params: ParamsPaliers, pe: float
 ) -> list[Palier]:
-    """Hypothèse 3 : fusionne les plages successives de même niveau de référence."""
+    """Hypothèse 3 : fusionne les plages successives de même niveau de référence.
+
+    Deux conditions, et la seconde est aussi nécessaire que la première :
+
+    1. les niveaux de référence diffèrent de moins de `ecart_min_paliers_pc_pe` ;
+    2. l'interruption qui les sépare est **passagère**.
+
+    Sans la seconde, deux passages au même niveau **à n'importe quelle distance**
+    seraient réunis : un relevé de zéro en milieu d'essai et le relevé de zéro
+    final ne font pas un palier de six minutes qui engloberait le cycle qui les
+    sépare. Un tel « palier » afficherait une bande de fond sur toute la partie
+    dynamique de l'acquisition, et fournirait à la régression un point qui est la
+    moyenne de deux mesures faites à des températures différentes.
+
+    Le seuil vaut **deux fois** `duree_palier_s`, et ce facteur n'est pas un
+    réglage de confort : le critère de stabilité est un écart-type glissant sur
+    `duree_palier_s`, si bien qu'une perturbation de durée `D` rend le signal
+    instable pendant `D + duree_palier_s`. Un seuil d'une seule durée de palier
+    ne laisserait donc passer aucune fusion, même pour un à-coup d'un dixième de
+    seconde. Le seuil retenu recolle les interruptions plus courtes que ce qu'il
+    faut pour établir un palier.
+    """
     if not paliers:
         return []
     ecart_min = params.ecart_min_paliers_pc_pe * pe / 100.0
+    interruption_max = 2.0 * params.duree_palier_s
     fusionnes = [paliers[0]]
     for p in paliers[1:]:
         precedent = fusionnes[-1]
-        if abs(p.reference - precedent.reference) < ecart_min:
+        interruption = p.t_stable_debut - precedent.t_fin
+        contigus = not math.isfinite(interruption) or interruption <= interruption_max
+        if contigus and abs(p.reference - precedent.reference) < ecart_min:
             poids_p, poids_prec = p.n, precedent.n
             total = poids_p + poids_prec
             fusionnes[-1] = Palier(
                 t_debut=precedent.t_debut,
                 t_fin=p.t_fin,
+                t_stable_debut=precedent.t_stable_debut,
                 reference=(precedent.reference * poids_prec + p.reference * poids_p) / total,
                 mesure=(precedent.mesure * poids_prec + p.mesure * poids_p) / total,
                 ecart_type_mesure=max(precedent.ecart_type_mesure, p.ecart_type_mesure),

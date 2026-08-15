@@ -77,6 +77,36 @@ Le générateur fabrique une arborescence d'essais **synthétiques à vérité c
 les tests vérifient que le pipeline retrouve bien chacune de ces valeurs. Aucun
 chiffre issu de ces fichiers ne doit figurer dans le rapport.
 
+### Une acquisition unique qui contient tous les cas
+
+Pour essayer l'interface à la main plutôt que de lancer les tests :
+
+```bash
+python tests/generer_mf4_toutes_zones.py --sortie demo/toutes_zones
+```
+
+Un **seul `.mf4`** qui enchaîne, dans l'ordre : repos initial, balayage montant,
+balayage descendant, repos intermédiaire, cycle transitoire, quatre départs
+arrêtés, une plage active volontairement pauvre, repos final. Il porte donc les
+**cinq familles de zones** à la fois — paliers montée et descente, plage
+dynamique, plage écartée, plages de repos — et permet de vérifier d'un coup
+d'œil que l'onglet *Zones détectées* les repère toutes.
+
+Il sert aussi à constater deux comportements qu'on ne voit pas autrement :
+
+* les **départs arrêtés restent invisibles** avec le réglage par défaut, leurs
+  fronts étant plus courts que la durée minimale d'une fenêtre
+  d'intercorrélation. Passer *Durée minimale d'une fenêtre* à 2 s les fait
+  apparaître : c'est le principal piège de réglage d'une campagne de DA ;
+* la **répétabilité est déclarée non calculable**, motif à l'appui — un fichier
+  unique ne peut pas la porter. Refuser plutôt qu'estimer est ici le bon
+  résultat.
+
+Un `verite_terrain.md` est écrit à côté du fichier : valeurs injectées, bornes
+de chaque phase, ce que l'application doit en dire, et les deux valeurs qu'il ne
+faut *pas* attendre au chiffre près (la régression brute mélange l'hystérésis et
+la dérive thermique, que le rapport sépare ensuite).
+
 ## Utilisation — interface graphique (recommandé)
 
 ```bash
@@ -340,9 +370,11 @@ src/amdec_correlation/
     etat.py       assemblage de la configuration, sans dépendance à Streamlit
 tests/
   generer_mf4_synthetique.py  arborescence synthétique à vérité connue
+  generer_mf4_toutes_zones.py une acquisition unique portant toutes les zones
   test_metriques.py           validation des formules
   test_bout_en_bout.py        validation du pipeline complet
   test_automatique.py         un dossier plat, aucun type déclaré : mêmes défauts retrouvés
+  test_toutes_zones.py        l'acquisition « toutes zones » porte bien tous les cas
   test_interface.py           logique de l'interface, sans lancer Streamlit
 ```
 
