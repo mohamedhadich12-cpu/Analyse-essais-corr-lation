@@ -36,9 +36,9 @@ PyYAML>=6.0
 # Facultatif : la ligne de commande fonctionne sans.
 streamlit>=1.30
 
-# Tracé interactif de l'onglet « Visualisation » : zoom, déplacement, curseur
-# de lecture. Facultatif lui aussi — sans plotly, l'onglet trace la même chose
-# en image fixe et l'annonce. Aucun calcul n'en dépend.
+# Tracés interactifs : zoom, déplacement, curseur de lecture, sur TOUTES les
+# figures de l'application. Facultatif lui aussi — sans plotly, l'application
+# rend les mêmes figures en image fixe et l'annonce. Aucun calcul n'en dépend.
 # Le recadrage par glisser demande Streamlit >= 1.35 ; en deçà, le tracé reste
 # interactif, seul ce geste-là est inopérant.
 plotly>=5.21

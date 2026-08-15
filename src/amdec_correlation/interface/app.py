@@ -35,6 +35,7 @@ from amdec_correlation import graphiques  # noqa: E402
 from amdec_correlation import graphiques_interactifs as GI  # noqa: E402
 from amdec_correlation import inventaire as I  # noqa: E402
 from amdec_correlation import lecteurs  # noqa: E402
+from amdec_correlation import metriques as M  # noqa: E402
 from amdec_correlation import rapport as R  # noqa: E402
 from amdec_correlation import zones as Zn  # noqa: E402
 from amdec_correlation.config import MODES_COMPARAISON  # noqa: E402
@@ -94,6 +95,10 @@ DEFAUTS: dict[str, object] = {
     "u_ref_connue": False, "u_ref": 2.0,
     "plage_connue": False, "plage": 40.0,
     "remontage": "Non précisé", "ligne_droite": False,
+    # Interactif d'emblée quand plotly est là : c'est le confort attendu à
+    # l'écran. Sans plotly, la valeur reste fausse et l'application le dit,
+    # plutôt que de tenter un rendu qui échouerait.
+    "graphes_interactifs": GI.disponible()[0],
     "p::duree_palier_s": 2.0, "p::tolerance_stab_pc_pe": 0.5,
     "p::fraction_finale": 0.5, "p::ecart_min_paliers_pc_pe": 1.0,
     "p::tolerance_appariement_pc_pe": 1.0,
@@ -382,16 +387,180 @@ def figure_zones_png(nom: str, zones, signaux: dict, pe: float,
     return tampon.getvalue()
 
 
-def _options_affichage(interactif_ok: bool, raison: str) -> dict:
-    """Réglages du tracé : mode, curseur, densité de points, échelle.
+def _mode_interactif() -> bool:
+    """Le réglage unique qui gouverne toutes les figures de l'application.
+
+    Il vit dans la barre latérale, pas dans un onglet : le lecteur ne choisit
+    pas un rendu par figure, il choisit une façon de travailler. Un tracé fixe
+    ici et manipulable là serait déroutant sans rien apporter.
+    """
+    return bool(st.session_state.get("graphes_interactifs")) and GI.disponible()[0]
+
+
+@st.cache_data(show_spinner="Relecture de l'acquisition…")
+def _signaux_de(chemin: str, _cfg) -> tuple:
+    """Signaux d'une acquisition, pour retracer une figure à la demande.
+
+    Deux figures du rapport portent sur UN fichier — le recalage temporel et la
+    redondance des voies. Les rejouer en interactif demande de relire ce
+    fichier : le résultat d'analyse ne conserve que les grandeurs, pas les
+    millions d'échantillons dont elles sont tirées. La lecture est mise en
+    cache, et reste en lecture seule comme partout ailleurs.
+    """
+    donnees = A.preparer(Path(chemin), _cfg, _cfg.canaux_pour(""))
+    return (donnees.t, donnees.reference, donnees.mesure,
+            donnees.gauche, donnees.droite)
+
+
+def _figures_interactives(campagne) -> dict:
+    """Les figures du rapport, reconstruites à la demande, en manipulable.
+
+    Chacune est une **fabrique** et non une figure : celles qui demandent de
+    relire une acquisition ne doivent coûter cette lecture que si on les
+    regarde. Les grandeurs, elles, sont déjà là — c'est le même calcul, jamais
+    refait.
+    """
+    cfg = campagne.config
+    pe = cfg.pleine_echelle_Nm
+    fabriques: dict = {}
+
+    paliers = [p for z in campagne.zones for p in getattr(z, "paliers", [])]
+    if campagne.regression_globale is not None and paliers:
+        fabriques["Régression des paliers"] = lambda: GI.figure_regression_balayage(
+            paliers, campagne.regression_globale,
+            M.hysteresis(paliers, pe, cfg.paliers), pe,
+            titre="Paliers stabilisés — corrélation transmissions / banc GMP",
+        )
+    if campagne.thermique_globale is not None:
+        fabriques["Résidu vs température"] = lambda: GI.figure_residu_temperature(
+            campagne.thermique_globale, pe,
+            titre="Campagne complète — résidu (mesuré − référence) vs température",
+        )
+    if campagne.repetabilite_globale is not None:
+        fabriques["Répétabilité"] = lambda: GI.figure_repetabilite(
+            campagne.repetabilite_globale, pe,
+            titre="Répétabilité — niveaux atteints par plusieurs acquisitions",
+        )
+    if campagne.fichier_recalage is not None and campagne.recalages_globaux:
+        chemin = campagne.fichier_recalage
+        recal = next((r for c, r in campagne.recalages_globaux if c == chemin),
+                     campagne.recalages_globaux[0][1])
+
+        def _recalage():
+            t, reference, mesure, _, _ = _signaux_de(str(chemin), cfg)
+            return GI.figure_recalage(t, reference, mesure, recal,
+                                      titre=chemin.name)
+
+        fabriques["Recalage temporel"] = _recalage
+    if campagne.fichier_redondance is not None:
+        chemin_gd = campagne.fichier_redondance
+
+        def _redondance():
+            t, _, _, gauche, droite = _signaux_de(str(chemin_gd), cfg)
+            pas = max(1, int(np.ceil(t.size / MAX_POINTS_INTERACTIF)))
+            return GI.figure_redondance(
+                t, gauche, droite, pe, decimation=pas,
+                titre=f"{chemin_gd.name} — redondance des voies (gauche − droite)",
+            )
+
+        fabriques["Redondance des voies"] = _redondance
+    return fabriques
+
+
+def _afficher_figures_resultats(campagne, images: list) -> None:
+    """Les figures de l'analyse : manipulables à l'écran, fixes pour le rapport.
+
+    En mode interactif, une figure est choisie et rendue seule : elles sont
+    hautes, et en empiler cinq ferait défiler sans rien laisser voir. Les images
+    fixes restent accessibles d'un dépliant — ce sont elles qui partent dans le
+    rapport, et les confronter au tracé manipulable est parfois utile.
+    """
+    if not images:
+        st.info("Aucune figure produite.")
+        return
+
+    def _grille_png() -> None:
+        for i in range(0, len(images), 2):
+            colonnes = st.columns(2)
+            for colonne, figure in zip(colonnes, images[i: i + 2]):
+                with colonne:
+                    st.image(str(figure), use_container_width=True)
+                    st.caption(f"`{figure.name}`")
+
+    if not _mode_interactif():
+        _grille_png()
+        return
+
+    fabriques = _figures_interactives(campagne)
+    if not fabriques:
+        _grille_png()
+        return
+
+    choix = st.selectbox(
+        "Figure à examiner", list(fabriques), key="res::figure",
+        help="Zoom, déplacement, curseur de lecture. Le calcul est celui de "
+        "l'analyse : cette figure et son PNG montrent la même chose.",
+    )
+    try:
+        st.plotly_chart(fabriques[choix](), key=f"res::graphe::{choix}",
+                        config=GI.CONFIG_MODEBAR)
+    except Exception as exc:  # noqa: BLE001 - une figure ratée ne doit rien bloquer
+        st.warning(f"Tracé interactif indisponible pour cette figure : {exc}")
+
+    with st.expander(f"Toutes les images fixes ({len(images)}) — celles du rapport"):
+        _grille_png()
+
+
+def _afficher_zones(nom: str, zones, signaux: dict, familles,
+                    telechargeable: bool = False) -> None:
+    """Figure des zones d'une acquisition, manipulable ou fixe selon le réglage.
+
+    Le PNG reste proposé au téléchargement même en mode interactif : c'est lui
+    qu'on colle dans un compte rendu, et il est identique à celui que l'analyse
+    écrit dans le dossier de sortie.
+    """
+    if nom not in signaux:
+        return
+    t, reference, mesure = signaux[nom]
+    pe = float(st.session_state["pe"])
+    if _mode_interactif():
+        figure = GI.figure_zones(
+            t, reference, mesure, zones, pe, titre=f"{nom} — zones détectées",
+            types=familles, curseur="unifie",
+        )
+        st.plotly_chart(figure, key=f"zones::graphe::{nom}",
+                        config=GI.CONFIG_MODEBAR)
+    else:
+        image = figure_zones_png(nom, zones, signaux, pe, familles)
+        if image:
+            st.image(image, use_container_width=True)
+    if telechargeable:
+        image = figure_zones_png(nom, zones, signaux, pe, familles)
+        if image:
+            st.download_button(
+                "Télécharger cette figure (.png)", data=image,
+                file_name=f"zones_{Path(nom).stem}.png", mime="image/png",
+                help="L'image fixe, identique à celle que l'analyse écrit dans "
+                "le dossier de sortie.",
+            )
+
+
+def _options_affichage() -> dict:
+    """Réglages du tracé libre : curseur, densité de points, échelle.
 
     Rassemblés dans un volet replié : ce sont des réglages de confort, et les
     laisser dépliés en permanence repousserait le tracé — la seule chose qu'on
-    vient voir — sous une page de cases à cocher.
+    vient voir — sous une page de cases à cocher. Le choix entre tracé
+    manipulable et image fixe, lui, est global : il se fait dans la barre
+    latérale (cf. `_mode_interactif`).
     """
+    interactif = _mode_interactif()
     with st.expander("Options d'affichage — zoom, curseur, densité", expanded=False):
-        if not interactif_ok:
-            st.info(raison)
+        if not interactif:
+            st.caption(
+                "Les figures sont rendues en **image fixe**. Pour zoomer et lire "
+                "au curseur, cocher « Tracés interactifs » dans la barre latérale."
+            )
         else:
             st.caption(
                 "**Zoom** : glisser un rectangle sur le tracé, ou la molette. "
@@ -401,17 +570,6 @@ def _options_affichage(interactif_ok: bool, raison: str) -> dict:
                 "L'axe des temps est partagé — zoomer un panneau cadre tous les "
                 "autres au même instant."
             )
-        modes = ["Interactif", "Image fixe"] if interactif_ok else ["Image fixe"]
-        if st.session_state.get("vue::mode") not in modes:
-            # Plotly désinstallé entre deux sessions : sans cela, Streamlit
-            # refuserait une valeur mémorisée absente de la liste.
-            st.session_state.pop("vue::mode", None)
-        mode = st.radio(
-            "Mode de tracé", modes, key="vue::mode", horizontal=True,
-            help="L'image fixe est celle qui part dans le rapport : reproductible, "
-            "indépendante du navigateur. L'interactif sert à l'examen à l'écran.",
-        )
-        interactif = mode == "Interactif"
 
         c1, c2 = st.columns(2)
         with c1:
@@ -644,7 +802,7 @@ def tracer_visualisation(
         courbes[etiquette] = courbes[canal_a] + signe * courbes[canal_b]
         unites[etiquette] = catalogue.get(canal_a, "")
 
-    options = _options_affichage(*GI.disponible())
+    options = _options_affichage()
     titre = f"{fichier.name}  —  {fin - debut:.1f} s affichées"
     t_affiche = t[fenetre]
 
@@ -916,6 +1074,21 @@ with st.sidebar:
         "et non un écart physique réel. À décocher si un essai sollicite le "
         "différentiel ou s'accompagne de patinage d'un seul côté.",
     )
+
+    st.divider()
+    st.markdown("**Affichage des figures**")
+    _interactif_possible, _raison_interactif = GI.disponible()
+    if _interactif_possible:
+        _case(
+            "Tracés interactifs", "graphes_interactifs", True,
+            "Zoom, déplacement, curseur de lecture et légende cliquable sur "
+            "TOUTES les figures. Décoché, l'application rend les images fixes — "
+            "celles qui partent dans le rapport, reproductibles hors navigateur. "
+            "Le calcul est le même dans les deux cas.",
+        )
+    else:
+        st.session_state["graphes_interactifs"] = False
+        st.caption(_raison_interactif)
 
     st.divider()
     st.markdown("**Configuration**")
@@ -1435,30 +1608,18 @@ with onglets[ZONES]:
                     familles = [inverse[x] for x in libelles]
 
                     if zone_choisie is not None:
-                        image = figure_zones_png(
-                            choix_figure, zone_choisie, signaux,
-                            float(st.session_state["pe"]), familles,
-                        )
-                        if image:
-                            st.image(image, use_container_width=True)
-                            st.download_button(
-                                "Télécharger cette figure (.png)", data=image,
-                                file_name=f"zones_{Path(choix_figure).stem}.png",
-                                mime="image/png",
-                            )
+                        _afficher_zones(choix_figure, zone_choisie, signaux,
+                                        familles, telechargeable=True)
                     if _case("Afficher toutes les acquisitions", "zones::toutes", False,
                              "Utile pour balayer une campagne entière d'un coup d'œil. "
                              "Chaque acquisition garde les familles qu'elle contient."):
                         for z in lisibles:
                             if z.chemin.name == choix_figure:
                                 continue
-                            autre = figure_zones_png(
+                            _afficher_zones(
                                 z.chemin.name, z, signaux,
-                                float(st.session_state["pe"]),
                                 [c for c in familles if c in z.familles()] or None,
                             )
-                            if autre:
-                                st.image(autre, use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # 5 · Hypothèses
@@ -1681,14 +1842,7 @@ with onglets[ANALYSE]:
             st.markdown(R.section_conclusions(campagne))
         with vues[2]:
             figures = campagne.figures + [f for e in campagne.essais for f in e.figures]
-            if not figures:
-                st.info("Aucune figure produite.")
-            for i in range(0, len(figures), 2):
-                colonnes = st.columns(2)
-                for colonne, figure in zip(colonnes, figures[i : i + 2]):
-                    with colonne:
-                        st.image(str(figure), use_container_width=True)
-                        st.caption(f"`{figure.name}`")
+            _afficher_figures_resultats(campagne, figures)
         with vues[3]:
             st.markdown(R.section_incertitude(campagne))
         with vues[4]:

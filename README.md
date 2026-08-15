@@ -144,8 +144,9 @@ Six onglets suivent le déroulé de l'analyse :
 
 ### Examiner un tracé de près
 
-L'onglet *Visualisation* propose deux rendus des **mêmes tableaux**, choisis dans
-le volet *Options d'affichage* :
+**Toutes** les figures de l'application existent en deux rendus des **mêmes
+tableaux** — régression des paliers, résidu thermique, recalage temporel,
+répétabilité, redondance des voies, zones détectées, visualisation libre :
 
 * l'**image fixe** — celle qui part dans le rapport : reproductible, indépendante
   du navigateur ;
@@ -153,6 +154,23 @@ le volet *Options d'affichage* :
   molette, déplacement, double-clic pour revenir au cadrage d'origine, clic sur
   la légende pour masquer une courbe. L'axe des temps est partagé : zoomer un
   panneau cadre tous les autres au même instant.
+
+Le choix se fait **une fois pour toute l'application**, par la case *Tracés
+interactifs* de la barre latérale : un tracé fixe ici et manipulable là serait
+déroutant sans rien apporter. Les images fixes restent accessibles d'un dépliant
+dans l'onglet *Figures*, et sont de toute façon écrites en PNG dans le dossier
+de sortie à chaque analyse.
+
+Deux gains propres à certaines figures :
+
+* sur la **régression des paliers**, survoler un point donne l'instant du palier
+  et sa température — de quoi comprendre un résidu qui sort du lot, ce qu'un
+  nuage figé ne peut pas dire ;
+* sur le **recalage temporel**, l'image fixe doit choisir une fenêtre de zoom,
+  sans quoi quelques dizaines de millisecondes seraient invisibles. Le tracé
+  interactif garde ce cadrage initial mais charge dix fois plus large, à pleine
+  résolution : un double-clic vérifie qu'un recalage juste sur la fenêtre
+  corrélée l'est aussi de part et d'autre.
 
 Trois réglages méritent d'être connus :
 
@@ -363,6 +381,7 @@ src/amdec_correlation/
   zones.py        découverte des zones exploitables dans chaque acquisition
   metriques.py    régression, paliers, hystérésis, recalage, thermique, zéro, incertitude, SPC
   graphiques.py   figures PNG (charte : une couleur = une entité, marques fines)
+  graphiques_interactifs.py  les mêmes figures, manipulables à l'écran (plotly)
   rapport.py      rédaction du Markdown
   analyse.py      orchestration : mode automatique (zones) ou déclaré (types)
   interface/

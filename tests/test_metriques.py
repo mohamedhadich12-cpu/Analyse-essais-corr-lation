@@ -750,6 +750,70 @@ def test_le_curseur_de_mesure_rend_un_echantillon_reel_jamais_interpole():
     )
 
 
+def _campagne_factice():
+    """Les objets de résultat nécessaires aux figures, sur un balayage simple."""
+    niveaux = [0, 300, 600, 900, 600, 300, 0]
+    t, ref = _escalier(niveaux)
+    mesure = 1.01 * ref + 5.0
+    paliers = M.detecter_paliers(t, ref, mesure, PE, ParamsPaliers())
+    reg = M.regression([p.reference for p in paliers], [p.mesure for p in paliers])
+    hyst = M.hysteresis(paliers, PE, ParamsPaliers())
+    return t, ref, mesure, paliers, reg, hyst
+
+
+def test_chaque_figure_du_rapport_a_son_equivalent_interactif():
+    """Toutes les figures se manipulent, pas seulement la visualisation libre.
+
+    Une figure interactive et son image fixe montrent la même chose : c'est la
+    condition pour que l'une puisse servir à vérifier ce que l'autre affirme.
+    """
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    t, ref, mesure, paliers, reg, hyst = _campagne_factice()
+
+    figure = GI.figure_regression_balayage(paliers, reg, hyst, PE)
+    noms = {trace.name for trace in figure.data}
+    assert {"montée", "descente", "régression linéaire"} <= noms
+    # L'encadré de valeurs reprend les chiffres de la régression, comme l'image fixe.
+    assert any(f"{reg.a:.4f}" in (a.text or "") for a in figure.layout.annotations)
+
+    recal = M.recalage_temporel(t, ref, mesure, PE, ParamsIntercorrelation())
+    figure = GI.figure_recalage(t, ref, mesure, recal)
+    assert len(figure.data) >= 4, "avant, après, et le pic d'intercorrélation"
+
+    rep = M.Repetabilite(non_calculable="répétabilité non calculable : essai")
+    figure = GI.figure_repetabilite(rep, PE)
+    assert any("non calculable" in (a.text or "") for a in figure.layout.annotations), (
+        "une grandeur non calculable s'affiche avec son motif, jamais en tracé vide"
+    )
+
+    figure = GI.figure_redondance(t, mesure, mesure - 2.0, PE)
+    assert {trace.name for trace in figure.data} == {
+        "transmission gauche", "transmission droite", "gauche − droite"
+    }
+
+
+def test_les_figures_interactives_gardent_la_palette_des_images_fixes():
+    """Une couleur suit une entité, d'un rendu à l'autre comme d'une figure à l'autre."""
+    from amdec_correlation import graphiques
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    _, _, _, paliers, reg, hyst = _campagne_factice()
+    figure = GI.figure_regression_balayage(paliers, reg, hyst, PE)
+    couleurs = {trace.name: trace.marker.color for trace in figure.data
+                if trace.mode == "markers" and trace.name}
+    assert couleurs["montée"] == graphiques.SERIE_1
+    assert couleurs["descente"] == graphiques.SERIE_2
+
+
 def test_sans_plotly_le_trace_interactif_le_dit_et_ne_trace_pas(monkeypatch):
     """La dépendance est facultative : son absence s'explique, elle ne plante pas."""
     from amdec_correlation import graphiques_interactifs as GI

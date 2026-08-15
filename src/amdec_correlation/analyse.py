@@ -226,6 +226,11 @@ class ResultatCampagne:
     incertitude: M.BilanIncertitude | None = None
     avertissements: list[str] = field(default_factory=list)
     figures: list[Path] = field(default_factory=list)
+    # Acquisitions retenues pour les deux figures qui portent sur UN fichier.
+    # Les garder permet à l'interface de retracer exactement la même, plutôt
+    # que d'en choisir une autre et de contredire l'image du rapport.
+    fichier_recalage: Path | None = None
+    fichier_redondance: Path | None = None
 
     def par_type(self, type_essai: str) -> list[ResultatEssai]:
         return [e for e in self.essais if e.declaration.type == type_essai]
@@ -868,6 +873,7 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
                 donnees.gauche, donnees.droite, cfg.pleine_echelle_Nm
             )
             if not campagne.redondance.non_calculable:
+                campagne.fichier_redondance = fichier
                 campagne.figures.append(
                     graphiques.figure_redondance(
                         donnees.t, donnees.gauche, donnees.droite, cfg.pleine_echelle_Nm,
@@ -938,6 +944,7 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
     # -- recalage : figure sur l'acquisition au pic le plus marqué ----------
     if donnees_figure is not None:
         donnees, recal = donnees_figure
+        campagne.fichier_recalage = donnees.chemin
         campagne.figures.append(
             graphiques.figure_recalage(
                 donnees.t, donnees.reference, donnees.mesure, recal,
