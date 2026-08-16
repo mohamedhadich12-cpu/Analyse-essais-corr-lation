@@ -62,13 +62,11 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
 
     # 1. Offset b
     if reg:
-        offset = 100.0 * reg.b / cfg.pleine_echelle_Nm
-        incert = 100.0 * reg.sigma_b / cfg.pleine_echelle_Nm
         lignes.append((
-            "Offset b (% PE)",
-            _f(offset, 3, signe=True),
+            "Offset b (N·m)",
+            _f(reg.b, 2, signe=True),
             f"Ordonnée à l'origine de la régression sur {source} : "
-            f"{reg.b:+.2f} ± {reg.sigma_b:.2f} N·m (±{incert:.3f} % PE, k=1), "
+            f"{reg.b:+.2f} ± {reg.sigma_b:.2f} N·m (k=1), "
             f"sur {reg.n} paliers stabilisés.",
         ))
     else:
@@ -76,7 +74,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             campagne.regression_globale.non_calculable if campagne.regression_globale else None,
             "aucun palier stabilisé exploitable dans les acquisitions",
         )
-        lignes.append(("Offset b (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
+        lignes.append(("Offset b (N·m)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 2. Erreur de sensibilité
     if reg:
@@ -92,41 +90,41 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
                        "Découle de la même régression que l'offset, non disponible."))
 
     # 3. Non-linéarité
-    if math.isfinite(campagne.non_linearite_pc_pe) and reg:
+    if math.isfinite(campagne.non_linearite_Nm) and reg:
         lignes.append((
-            "Non-linéarité (% PE)",
-            _f(campagne.non_linearite_pc_pe, 3),
+            "Non-linéarité (N·m)",
+            _f(campagne.non_linearite_Nm, 3),
             f"Résidu maximal par rapport à la droite de régression "
             f"({reg.residu_max:.2f} N·m), écart-type des résidus "
             f"{reg.ecart_type_residus:.2f} N·m.",
         ))
     else:
-        lignes.append(("Non-linéarité (% PE)", NON_CALCULABLE,
+        lignes.append(("Non-linéarité (N·m)", NON_CALCULABLE,
                        "Nécessite une régression exploitable sur des paliers stabilisés."))
 
     # 4. Hystérésis
     h = campagne.hysteresis_globale
     if h is not None and not h.non_calculable:
         lignes.append((
-            "Hystérésis (% PE)",
-            _f(h.max_pc_pe, 3),
+            "Hystérésis (N·m)",
+            _f(h.max_Nm, 3),
             f"Écart maximal montée/descente au même couple de référence sur "
-            f"{h.n_appariements} appariement(s) ; moyenne {h.moyenne_pc_pe:.3f} % PE. "
-            f"Tolérance d'appariement {cfg.paliers.tolerance_appariement_pc_pe} % PE.",
+            f"{h.n_appariements} appariement(s) ; moyenne {h.moyenne_Nm:.2f} N·m. "
+            f"Tolérance d'appariement {cfg.paliers.tolerance_appariement_Nm:g} N·m.",
         ))
     else:
         motif = _motif(
             h.non_calculable if h else None,
             "aucune acquisition ne présente montée et descente",
         )
-        lignes.append(("Hystérésis (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
+        lignes.append(("Hystérésis (N·m)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 5. Répétabilité après remontage
     rep_rem = campagne.repetabilite_remontage
     if rep_rem and not rep_rem.non_calculable:
         lignes.append((
-            "Répétabilité après remontage (% PE)",
-            _f(rep_rem.ecart_type_pc_pe, 3),
+            "Répétabilité après remontage (N·m)",
+            _f(rep_rem.ecart_type_Nm, 3),
             f"Écart-type entre groupes de remontage à couple de référence constant, "
             f"{rep_rem.degres_liberte} ddl sur {len(rep_rem.groupes)} niveau(x).",
         ))
@@ -139,11 +137,11 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         )
         complement = (
             f" À titre indicatif, la répétabilité **sans remontage** (essais répétés à "
-            f"température stabilisée) vaut {rep_simple.ecart_type_pc_pe:.3f} % PE "
+            f"température stabilisée) vaut {rep_simple.ecart_type_Nm:.2f} N·m "
             f"({rep_simple.degres_liberte} ddl) — ce n'est pas la même grandeur."
             if rep_simple else ""
         )
-        lignes.append(("Répétabilité après remontage (% PE)", NON_CALCULABLE,
+        lignes.append(("Répétabilité après remontage (N·m)", NON_CALCULABLE,
                        _majuscule(motif) + "." + complement))
 
     # 6. Retard temporel
@@ -193,9 +191,9 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
     th = campagne.thermique_globale
     if th and not th.non_calculable:
         lignes.append((
-            "Sensibilité thermique (% PE pour 10 °C)",
-            _f(th.pc_pe_pour_10C, 3, signe=True),
-            f"Pente {th.pente_Nm_par_C:+.4f} N·m/°C ({th.pc_pe_par_C:+.5f} % PE/°C), "
+            "Sensibilité thermique (N·m pour 10 °C)",
+            _f(th.Nm_pour_10C, 3, signe=True),
+            f"Pente {th.pente_Nm_par_C:+.4f} N·m/°C, "
             f"R² = {th.r2:.3f} sur {th.n_classes} cellules d'agrégation, excursion "
             f"{th.amplitude_C:.1f} °C. Régression sur moyennes par cellule pour éviter "
             f"l'autocorrélation des échantillons"
@@ -207,24 +205,24 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
             ),
         ))
     else:
-        lignes.append(("Sensibilité thermique (% PE pour 10 °C)", NON_CALCULABLE,
+        lignes.append(("Sensibilité thermique (N·m pour 10 °C)", NON_CALCULABLE,
                        _majuscule(_motif(th.non_calculable if th else None)) + "."))
 
     # 8. Dérive de zéro
     derives = campagne.derives_zero_globales
     if derives:
-        pire_nom, pire = max(derives, key=lambda nd: abs(nd[1].derive_pc_pe))
-        valeurs = [d.derive_pc_pe for _, d in derives]
+        pire_nom, pire = max(derives, key=lambda nd: abs(nd[1].derive_Nm))
+        valeurs = [d.derive_Nm for _, d in derives]
         lignes.append((
-            "Dérive de zéro sur cycle (% PE)",
-            _f(pire.derive_pc_pe, 3, signe=True),
+            "Dérive de zéro sur cycle (N·m)",
+            _f(pire.derive_Nm, 3, signe=True),
             f"Dérive la plus forte, sur « {pire_nom} » ({pire.zero_debut_Nm:+.2f} → "
             f"{pire.zero_fin_Nm:+.2f} N·m). Sur {len(derives)} essai(s) exploitable(s) : "
-            f"moyenne {np.mean(valeurs):+.3f} % PE, étendue {np.ptp(valeurs):.3f} % PE.",
+            f"moyenne {np.mean(valeurs):+.2f} N·m, étendue {np.ptp(valeurs):.2f} N·m.",
         ))
     else:
         motif = _motif("aucun relevé de zéro avant/après identifiable dans les acquisitions")
-        lignes.append(("Dérive de zéro sur cycle (% PE)", NON_CALCULABLE, _majuscule(motif) + "."))
+        lignes.append(("Dérive de zéro sur cycle (N·m)", NON_CALCULABLE, _majuscule(motif) + "."))
 
     # 9. Incertitude élargie
     inc = campagne.incertitude
@@ -237,7 +235,7 @@ def tableau_recapitulatif(campagne: ResultatCampagne) -> str:
         )
         lignes.append((
             "Incertitude élargie résultante (k=2)",
-            f"{inc.U_k2_pc_pe:.3f} % PE ({inc.U_k2_Nm:.1f} N·m)",
+            f"{inc.U_k2_Nm:.2f} N·m",
             f"Somme quadratique de {len(inc.contributions)} contribution(s) supposées non "
             f"corrélées, u_c = {inc.u_composee_Nm:.2f} N·m, k = 2 (≈ 95 %).{mention}",
         ))
@@ -278,21 +276,21 @@ def section_conclusions(campagne: ResultatCampagne) -> str:
 def _mise_en_perspective_remontage(campagne: ResultatCampagne) -> str:
     """Situe l'écart de remontage par rapport à σ0 : c'est la cible de la carte."""
     spc, rep = campagne.spc, campagne.repetabilite_remontage
-    if not (spc and not spc.non_calculable and spc.sigma0_pc_pe > 0):
+    if not (spc and not spc.non_calculable and spc.sigma0_Nm > 0):
         return ""
     if not (rep and not rep.non_calculable):
         return ""
-    rapport_sigma = rep.ecart_type_pc_pe / spc.sigma0_pc_pe
+    rapport_sigma = rep.ecart_type_Nm / spc.sigma0_Nm
     return (
         f"\n> **Dimensionnement vérifié.** La dispersion après remontage "
-        f"({rep.ecart_type_pc_pe:.4f} % PE) vaut {rapport_sigma:.1f} σ0. Un remontage de la "
+        f"({rep.ecart_type_Nm:.2f} N·m) vaut {rapport_sigma:.1f} σ0. Un remontage de la "
         f"chaîne de mesure produit donc un décalage que ces cartes détectent : les seuils "
         f"proposés ne sont ni trop serrés (ils absorbent la variabilité court terme) ni trop "
         f"larges (ils réagissent à un événement de remontage).\n"
         if rapport_sigma >= 1.0
         else (
             f"\n> **Dimensionnement vérifié.** La dispersion après remontage "
-            f"({rep.ecart_type_pc_pe:.4f} % PE) reste sous σ0 ({rapport_sigma:.1f} σ0) : un "
+            f"({rep.ecart_type_Nm:.2f} N·m) reste sous σ0 ({rapport_sigma:.1f} σ0) : un "
             f"remontage ne produit pas de décalage détectable par ces cartes, ce qui est "
             f"favorable — le remontage n'est pas une source de dérive à surveiller.\n"
         )
@@ -308,36 +306,36 @@ def section_spc(campagne: ResultatCampagne) -> str:
             "aucune valeur par défaut n'est proposée ici, elle serait arbitraire.\n"
         )
     return f"""Les paramètres de position et de dispersion sont **déduits des essais répétés**
-(résidu mesuré − référence aux paliers stabilisés, exprimé en % PE), centrés par niveau
+(résidu mesuré − référence aux paliers stabilisés, en N·m), centrés par niveau
 de couple afin que la dispersion estimée soit bien celle de la chaîne de mesure à point
 de fonctionnement donné :
 
 | Paramètre | Valeur | Origine |
 |---|---|---|
-| μ0 (centre) | {spc.mu0_pc_pe:+.4f} % PE | moyenne du résidu sur {spc.n} paliers d'essais répétés |
-| σ0 (dispersion) | {spc.sigma0_pc_pe:.4f} % PE | répétabilité poolée **à couple de référence constant**, {spc.ddl} ddl |
-| σ0 robuste (étendue mobile) | {spc.sigma0_robuste_pc_pe:.4f} % PE | MR moyen / d₂ (d₂ = {M.D2_ETENDUE_MOBILE}) — insensible à une dérive lente ; sert de contre-épreuve à σ0 |
+| μ0 (centre) | {spc.mu0_Nm:+.4f} N·m | moyenne du résidu sur {spc.n} paliers d'essais répétés |
+| σ0 (dispersion) | {spc.sigma0_Nm:.4f} N·m | répétabilité poolée **à couple de référence constant**, {spc.ddl} ddl |
+| σ0 robuste (étendue mobile) | {spc.sigma0_robuste_Nm:.4f} N·m | MR moyen / d₂ (d₂ = {M.D2_ETENDUE_MOBILE}) — insensible à une dérive lente ; sert de contre-épreuve à σ0 |
 {_mise_en_perspective_remontage(campagne)}
 
 **Carte CUSUM** (détection d'un décalage de 1 σ) :
 
 | Paramètre | Valeur | Justification |
 |---|---|---|
-| k (référence) | {spc.cusum_k_pc_pe:.4f} % PE | k = 0,5·σ0 — optimal pour un décalage de 1 σ |
-| h **alerte** | {spc.cusum_h_alerte_pc_pe:.4f} % PE | h = 4·σ0 → ARL0 ≈ 168 |
-| h **alarme** | {spc.cusum_h_alarme_pc_pe:.4f} % PE | h = 5·σ0 → ARL0 ≈ 465 |
+| k (référence) | {spc.cusum_k_Nm:.4f} N·m | k = 0,5·σ0 — optimal pour un décalage de 1 σ |
+| h **alerte** | {spc.cusum_h_alerte_Nm:.4f} N·m | h = 4·σ0 → ARL0 ≈ 168 |
+| h **alarme** | {spc.cusum_h_alarme_Nm:.4f} N·m | h = 5·σ0 → ARL0 ≈ 465 |
 
 **Carte EWMA** :
 
 | Paramètre | Valeur | Justification |
 |---|---|---|
 | λ | {spc.ewma_lambda:.2f} | compromis usuel pour détecter des décalages de 0,5 à 1 σ |
-| σ_EWMA(∞) | {spc.ewma_sigma_asymptotique_pc_pe:.4f} % PE | σ0·√(λ/(2−λ)) |
-| L **alerte** | {spc.ewma_L_alerte:.2f} → ±{spc.ewma_limite_alerte_pc_pe:.4f} % PE | limite à ≈ 2 σ |
-| L **alarme** | {spc.ewma_L_alarme:.3f} → ±{spc.ewma_limite_alarme_pc_pe:.4f} % PE | ARL0 ≈ 370 pour λ = {spc.ewma_lambda:.2f} |
+| σ_EWMA(∞) | {spc.ewma_sigma_asymptotique_Nm:.4f} N·m | σ0·√(λ/(2−λ)) |
+| L **alerte** | {spc.ewma_L_alerte:.2f} → ±{spc.ewma_limite_alerte_Nm:.4f} N·m | limite à ≈ 2 σ |
+| L **alarme** | {spc.ewma_L_alarme:.3f} → ±{spc.ewma_limite_alarme_Nm:.4f} N·m | ARL0 ≈ 370 pour λ = {spc.ewma_lambda:.2f} |
 
-Limites de contrôle EWMA à appliquer : **{spc.mu0_pc_pe:+.4f} ± {spc.ewma_limite_alarme_pc_pe:.4f} % PE**
-(alarme) et **{spc.mu0_pc_pe:+.4f} ± {spc.ewma_limite_alerte_pc_pe:.4f} % PE** (alerte).
+Limites de contrôle EWMA à appliquer : **{spc.mu0_Nm:+.4f} ± {spc.ewma_limite_alarme_Nm:.4f} N·m**
+(alarme) et **{spc.mu0_Nm:+.4f} ± {spc.ewma_limite_alerte_Nm:.4f} N·m** (alerte).
 
 > μ0 et σ0 sortent des mesures. Les multiplicateurs (k = 0,5σ ; h = 4σ / 5σ ; λ = 0,20 ;
 > L = 2,962) sont les valeurs tabulées correspondant aux ARL0 usuelles en maîtrise
@@ -360,14 +358,13 @@ def section_incertitude(campagne: ResultatCampagne) -> str:
         return f"{NON_CALCULABLE} — {_motif(inc.non_calculable if inc else None)}.\n"
     cfg = campagne.config
     lignes = "".join(
-        f"| {c.nom} | {c.valeur_Nm:.3f} | {c.loi} | {c.u_Nm:.3f} | "
-        f"{100 * c.u_Nm / cfg.pleine_echelle_Nm:.4f} | {c.commentaire} |\n"
+        f"| {c.nom} | {c.valeur_Nm:.3f} | {c.loi} | {c.u_Nm:.3f} | {c.commentaire} |\n"
         for c in inc.contributions
     )
-    texte = f"""| Contribution | Valeur (N·m) | Loi | u (N·m) | u (% PE) | Origine |
-|---|---|---|---|---|---|
-{lignes}| **u_c (composée)** | | | **{inc.u_composee_Nm:.3f}** | **{100 * inc.u_composee_Nm / cfg.pleine_echelle_Nm:.4f}** | somme quadratique |
-| **U (k = 2)** | | | **{inc.U_k2_Nm:.3f}** | **{inc.U_k2_pc_pe:.4f}** | ≈ 95 % de confiance |
+    texte = f"""| Contribution | Valeur (N·m) | Loi | u (N·m) | Origine |
+|---|---|---|---|---|
+{lignes}| **u_c (composée)** | | | **{inc.u_composee_Nm:.3f}** | somme quadratique |
+| **U (k = 2)** | | | **{inc.U_k2_Nm:.3f}** | ≈ 95 % de confiance |
 """
     if inc.exclusions:
         texte += (
@@ -447,7 +444,7 @@ def section_detail_acquisitions(campagne: ResultatCampagne) -> str:
                 )
     for nom, d in sorted(derives.items()):
         detail.append(
-            f"- Dérive de zéro `{nom}` : {d.derive_pc_pe:+.3f} % PE "
+            f"- Dérive de zéro `{nom}` : {d.derive_Nm:+.2f} N·m "
             f"({d.zero_debut_Nm:+.2f} → {d.zero_fin_Nm:+.2f} N·m)"
             if not d.non_calculable
             else f"- Dérive de zéro `{nom}` : {d.non_calculable}"
@@ -492,7 +489,7 @@ def section_detail_essais(campagne: ResultatCampagne) -> str:
             lignes.append(f"- Régression : {e.regression.non_calculable}")
         if e.repetabilite:
             lignes.append(
-                f"- Répétabilité : σ = {e.repetabilite.ecart_type_pc_pe:.4f} % PE "
+                f"- Répétabilité : σ = {e.repetabilite.ecart_type_Nm:.2f} N·m "
                 f"({e.repetabilite.degres_liberte} ddl)"
                 if not e.repetabilite.non_calculable
                 else f"- Répétabilité : {e.repetabilite.non_calculable}"
@@ -508,23 +505,23 @@ def section_detail_essais(campagne: ResultatCampagne) -> str:
                 )
         if e.thermique:
             lignes.append(
-                f"- Sensibilité thermique : {e.thermique.pc_pe_pour_10C:+.3f} % PE / 10 °C "
+                f"- Sensibilité thermique : {e.thermique.Nm_pour_10C:+.2f} N·m / 10 °C "
                 f"(R² = {e.thermique.r2:.3f})"
                 if not e.thermique.non_calculable
                 else f"- Sensibilité thermique : {e.thermique.non_calculable}"
             )
         for chemin, d in e.derives_zero:
             lignes.append(
-                f"- Dérive de zéro `{chemin.name}` : {d.derive_pc_pe:+.3f} % PE "
+                f"- Dérive de zéro `{chemin.name}` : {d.derive_Nm:+.2f} N·m "
                 f"({d.zero_debut_Nm:+.2f} → {d.zero_fin_Nm:+.2f} N·m)"
                 if not d.non_calculable
                 else f"- Dérive de zéro `{chemin.name}` : {d.non_calculable}"
             )
         if e.redondance:
             lignes.append(
-                f"- Redondance gauche−droite : moyenne {e.redondance.moyenne_pc_pe:+.3f} % PE, "
-                f"σ = {e.redondance.ecart_type_pc_pe:.3f} % PE, "
-                f"max {e.redondance.max_absolu_pc_pe:.3f} % PE"
+                f"- Redondance gauche−droite : moyenne {e.redondance.moyenne_Nm:+.2f} N·m, "
+                f"σ = {e.redondance.ecart_type_Nm:.2f} N·m, "
+                f"max {e.redondance.max_absolu_Nm:.2f} N·m"
                 if not e.redondance.non_calculable
                 else f"- Redondance gauche−droite : {e.redondance.non_calculable}"
             )
@@ -555,14 +552,14 @@ implicites du code.
 | Rapport de réduction appliqué à la référence | {cfg.rapport_reduction:g} |
 | Fréquence de rééchantillonnage sur base de temps commune | {cfg.frequence_Hz:g} Hz |
 | Durée de fenêtre de stabilisation (paliers) | {cfg.paliers.duree_palier_s:g} s |
-| Critère de stabilisation (écart-type du couple de référence) | {cfg.paliers.tolerance_stab_pc_pe:g} % PE |
+| Critère de stabilisation (écart-type du couple de référence) | {cfg.paliers.tolerance_stab_Nm:g} N·m |
 | Fraction finale du palier moyennée | {cfg.paliers.fraction_finale:g} |
-| Écart minimal entre deux paliers distincts | {cfg.paliers.ecart_min_paliers_pc_pe:g} % PE |
-| Tolérance d'appariement montée/descente et de regroupement | {cfg.paliers.tolerance_appariement_pc_pe:g} % PE |
+| Écart minimal entre deux paliers distincts | {cfg.paliers.ecart_min_paliers_Nm:g} N·m |
+| Tolérance d'appariement montée/descente et de regroupement | {cfg.paliers.tolerance_appariement_Nm:g} N·m |
 | Bornes de recherche du retard (intercorrélation) | ±{cfg.intercorrelation.retard_max_ms:g} ms |
 | Filtre passe-haut avant intercorrélation | {cfg.intercorrelation.passe_haut_Hz} Hz (Butterworth ordre 2, phase nulle) |
-| Seuil d'activité dynamique pour l'intercorrélation | {cfg.intercorrelation.seuil_activite_pc_pe:g} % PE |
-| Fenêtre de relevé de zéro | {cfg.zero.duree_fenetre_s:g} s, |C_réf| < {cfg.zero.seuil_couple_ref_pc_pe:g} % PE, |N| < {cfg.zero.seuil_regime} |
+| Seuil d'activité dynamique pour l'intercorrélation | {cfg.intercorrelation.seuil_activite_Nm:g} N·m |
+| Fenêtre de relevé de zéro | {cfg.zero.duree_fenetre_s:g} s, |C_réf| < {cfg.zero.seuil_couple_ref_Nm:g} N·m, |N| < {cfg.zero.seuil_regime} |
 | Position exigée des relevés de zéro | premiers / derniers {cfg.zero.fraction_bord * 100:.0f} % de l'essai |
 | Excursion thermique minimale pour identifier une pente | {cfg.thermique.amplitude_min_C:g} °C |
 | Plage de température de service (bilan d'incertitude) | {cfg.thermique.plage_service_C if cfg.thermique.plage_service_C else "non renseignée → contribution exclue"} |
@@ -600,7 +597,7 @@ _Rapport généré le {horodatage} — racine des données : `{cfg.racine}`_
 Comparaison entre le couple mesuré par les transmissions instrumentées
 (télémétrie Manner PCM16) et le couple de référence mesuré sur banc GMP.
 Le **résidu** est défini partout comme `couple_mesuré − couple_référence`.
-« % PE » rapporte la grandeur à la pleine échelle de {cfg.pleine_echelle_Nm:g} N·m.
+Toutes les grandeurs sont en N·m. La pleine échelle du capteur, {cfg.pleine_echelle_Nm:g} N·m, ne sert plus qu'à situer les valeurs.
 
 ## 10.1 Tableau récapitulatif
 

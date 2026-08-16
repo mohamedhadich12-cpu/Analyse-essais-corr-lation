@@ -7,7 +7,8 @@ motif est renseigné et **aucune valeur n'est produite**. Rien n'est extrapolé.
 
 Conventions :
   * les couples sont en N·m, les températures en °C, les temps en secondes ;
-  * « % PE » désigne le pourcentage de la pleine échelle du capteur
+  * toutes les grandeurs de couple sont en N·m — jamais en pourcentage de
+    pleine échelle, ce qui obligerait à une conversion mentale à chaque lecture
     (1500 N·m par défaut, cf. configuration) ;
   * le *résidu* est toujours défini comme `couple_mesuré − couple_référence`.
 """
@@ -213,14 +214,14 @@ def detecter_paliers(
     HYPOTHÈSES (à citer telles quelles dans le rapport) :
       1. Le critère de stabilisation porte sur le **couple de référence** : une
          fenêtre glissante de `duree_palier_s` est déclarée stable si l'écart-type
-         du couple de référence y reste sous `tolerance_stab_pc_pe` % PE. Le bruit
+         du couple de référence y reste sous `tolerance_stab_Nm` N·m. Le bruit
          de la voie mesurée n'intervient pas dans le critère, sans quoi une voie
          bruitée invaliderait des paliers pourtant établis côté banc.
       2. La valeur retenue est la moyenne sur la **fraction finale**
          (`fraction_finale`) de la plage stable, pour écarter le transitoire
          d'établissement thermique et mécanique.
       3. Deux plages successives dont les niveaux de référence diffèrent de moins
-         de `ecart_min_paliers_pc_pe` % PE sont fusionnées : il s'agit du même
+         de `ecart_min_paliers_Nm` N·m sont fusionnées : il s'agit du même
          palier, momentanément interrompu par une perturbation.
       4. Le sens (montée / descente) est déduit du signe de la variation de
          niveau par rapport au palier précédent ; le premier palier hérite du
@@ -229,7 +230,7 @@ def detecter_paliers(
     t = np.asarray(t, dtype=float)
     fe = frequence_echantillonnage(t)
     n_fenetre = max(3, int(round(params.duree_palier_s * fe)))
-    tolerance_Nm = params.tolerance_stab_pc_pe * pleine_echelle_Nm / 100.0
+    tolerance_Nm = params.tolerance_stab_Nm
 
     stable = _std_glissant(reference, n_fenetre) <= tolerance_Nm
     plages = _segments(stable, n_fenetre)
@@ -266,7 +267,7 @@ def _fusionner_paliers(
 
     Deux conditions, et la seconde est aussi nécessaire que la première :
 
-    1. les niveaux de référence diffèrent de moins de `ecart_min_paliers_pc_pe` ;
+    1. les niveaux de référence diffèrent de moins de `ecart_min_paliers_Nm` ;
     2. l'interruption qui les sépare est **passagère**.
 
     Sans la seconde, deux passages au même niveau **à n'importe quelle distance**
@@ -286,7 +287,7 @@ def _fusionner_paliers(
     """
     if not paliers:
         return []
-    ecart_min = params.ecart_min_paliers_pc_pe * pe / 100.0
+    ecart_min = params.ecart_min_paliers_Nm
     interruption_max = 2.0 * params.duree_palier_s
     fusionnes = [paliers[0]]
     for p in paliers[1:]:
@@ -321,7 +322,7 @@ def _attribuer_sens(paliers: list[Palier], params: ParamsPaliers, pe: float) -> 
     """Hypothèse 4 : sens déduit de la variation de niveau au palier précédent."""
     if len(paliers) < 2:
         return
-    seuil = params.ecart_min_paliers_pc_pe * pe / 100.0
+    seuil = params.ecart_min_paliers_Nm
     for i in range(1, len(paliers)):
         delta = paliers[i].reference - paliers[i - 1].reference
         if abs(delta) < seuil:
@@ -338,8 +339,8 @@ def _attribuer_sens(paliers: list[Palier], params: ParamsPaliers, pe: float) -> 
 
 @dataclass
 class Hysteresis:
-    max_pc_pe: float = float("nan")
-    moyenne_pc_pe: float = float("nan")
+    max_Nm: float = float("nan")
+    moyenne_Nm: float = float("nan")
     n_appariements: int = 0
     appariements: list[tuple[Palier, Palier, float]] = field(default_factory=list, repr=False)
     non_calculable: str | None = None
@@ -348,11 +349,11 @@ class Hysteresis:
 def hysteresis(
     paliers: Sequence[Palier], pleine_echelle_Nm: float, params: ParamsPaliers
 ) -> Hysteresis:
-    """Écart montée/descente au même couple de référence, en % PE.
+    """Écart montée/descente au même couple de référence, en N·m.
 
     HYPOTHÈSE : un palier de montée et un palier de descente sont appariés si
     leurs couples de référence diffèrent de moins de
-    `tolerance_appariement_pc_pe` % PE ; en cas de candidats multiples, le plus
+    `tolerance_appariement_Nm` N·m ; en cas de candidats multiples, le plus
     proche en couple de référence est retenu.
     """
     montees = [p for p in paliers if p.sens == "montee"]
@@ -366,7 +367,7 @@ def hysteresis(
             )
         )
 
-    tolerance = params.tolerance_appariement_pc_pe * pleine_echelle_Nm / 100.0
+    tolerance = params.tolerance_appariement_Nm
     appariements: list[tuple[Palier, Palier, float]] = []
     for m in montees:
         candidats = [d for d in descentes if abs(d.reference - m.reference) <= tolerance]
@@ -380,24 +381,24 @@ def hysteresis(
             non_calculable=(
                 "hystérésis non calculable : aucun palier de montée n'a de palier de "
                 f"descente au même couple de référence (tolérance "
-                f"{params.tolerance_appariement_pc_pe} % PE)"
+                f"{params.tolerance_appariement_Nm:g} N·m)"
             )
         )
 
     ecarts = np.array([abs(e) for _, _, e in appariements])
     return Hysteresis(
-        max_pc_pe=float(100.0 * ecarts.max() / pleine_echelle_Nm),
-        moyenne_pc_pe=float(100.0 * ecarts.mean() / pleine_echelle_Nm),
+        max_Nm=float(ecarts.max()),
+        moyenne_Nm=float(ecarts.mean()),
         n_appariements=len(appariements),
         appariements=appariements,
     )
 
 
-def non_linearite_pc_pe(reg: Regression, pleine_echelle_Nm: float) -> float:
-    """Résidu maximal par rapport à la droite de régression, en % PE."""
+def non_linearite_Nm(reg: Regression, pleine_echelle_Nm: float) -> float:
+    """Résidu maximal par rapport à la droite de régression, en N·m."""
     if reg.non_calculable or not reg.residus.size:
         return float("nan")
-    return float(100.0 * reg.residu_max / pleine_echelle_Nm)
+    return float(reg.residu_max)
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +417,6 @@ class GroupeRepetabilite:
 
 @dataclass
 class Repetabilite:
-    ecart_type_pc_pe: float = float("nan")
     ecart_type_Nm: float = float("nan")
     degres_liberte: int = 0
     n_points: int = 0
@@ -431,7 +431,7 @@ def repetabilite(
 
     HYPOTHÈSES :
       * les paliers sont regroupés par niveau de couple de référence, avec une
-        tolérance de `tolerance_appariement_pc_pe` % PE ;
+        tolérance de `tolerance_appariement_Nm` N·m ;
       * la dispersion est calculée sur le **résidu** (mesuré − référence) et non
         sur la mesure brute : à l'intérieur d'un groupe le couple de référence
         n'est pas rigoureusement identique d'une répétition à l'autre, et
@@ -450,7 +450,7 @@ def repetabilite(
             )
         )
 
-    tolerance = params.tolerance_appariement_pc_pe * pleine_echelle_Nm / 100.0
+    tolerance = params.tolerance_appariement_Nm
     tries = sorted(exploitables, key=lambda p: p.reference)
     groupes_bruts: list[list[Palier]] = [[tries[0]]]
     for p in tries[1:]:
@@ -483,13 +483,12 @@ def repetabilite(
             non_calculable=(
                 "répétabilité non calculable : aucun niveau de couple de référence n'est "
                 f"répété au moins 2 fois (tolérance de regroupement "
-                f"{params.tolerance_appariement_pc_pe} % PE)"
+                f"{params.tolerance_appariement_Nm:g} N·m)"
             )
         )
 
     s_poole = math.sqrt(somme_var / somme_ddl)
     return Repetabilite(
-        ecart_type_pc_pe=100.0 * s_poole / pleine_echelle_Nm,
         ecart_type_Nm=s_poole,
         degres_liberte=somme_ddl,
         n_points=sum(g.n for g in groupes),
@@ -613,7 +612,7 @@ def plages_dynamiques(
     fe = frequence_echantillonnage(t)
     retard_max_s = params.retard_max_ms / 1000.0
     n_activite = max(3, int(round(params.fenetre_activite_s * fe)))
-    seuil_Nm = params.seuil_activite_pc_pe * pleine_echelle_Nm / 100.0
+    seuil_Nm = params.seuil_activite_Nm
 
     activite = _std_glissant(reference, n_activite)
     actif = np.isfinite(activite) & (activite >= seuil_Nm)
@@ -665,7 +664,7 @@ def plages_de_repos(
     """
     fe = frequence_echantillonnage(t)
     n_min = max(3, int(round(params.duree_fenetre_s * fe)))
-    seuil_Nm = params.seuil_couple_ref_pc_pe * pleine_echelle_Nm / 100.0
+    seuil_Nm = params.seuil_couple_ref_Nm
 
     masque = np.abs(reference) < seuil_Nm
     if regime is not None and params.seuil_regime is not None:
@@ -723,7 +722,7 @@ def recalage_temporel(
     HYPOTHÈSE 1 — **toutes** les plages réellement dynamiques sont corrélées,
     pas seulement la meilleure. Une plage est dite dynamique lorsque l'écart-type
     glissant du couple de référence sur `fenetre_activite_s` dépasse
-    `seuil_activite_pc_pe` % PE ; les interruptions de moins de
+    `seuil_activite_Nm` N·m ; les interruptions de moins de
     `duree_comblement_s` sont comblées au préalable, un transitoire passant par
     des extrema où la variance instantanée s'annule sans cesser d'être dynamique.
     Les plages trop peu informatives sont écartées (cf. `plages_exploitables`).
@@ -754,7 +753,7 @@ def recalage_temporel(
             non_calculable=(
                 "recalage non calculable : aucune plage dynamique contiguë d'au moins "
                 f"{duree_min_s:.1f} s avec un écart-type de couple de référence "
-                f"supérieur à {params.seuil_activite_pc_pe} % PE"
+                f"supérieur à {params.seuil_activite_Nm:g} N·m"
             )
         )
 
@@ -1028,8 +1027,8 @@ class SensibiliteThermique:
     # NaN si aucune correction du couple n'a été appliquée.
     coefficient_couple: float = float("nan")
     correction_couple: bool = False
-    pc_pe_par_C: float = float("nan")
-    pc_pe_pour_10C: float = float("nan")
+    Nm_par_C: float = float("nan")
+    Nm_pour_10C: float = float("nan")
     incertitude_pente_Nm_par_C: float = float("nan")
     r2: float = float("nan")
     p_value: float = float("nan")
@@ -1177,8 +1176,8 @@ def sensibilite_thermique(
         pente_Nm_par_C=pente,
         coefficient_couple=alpha,
         correction_couple=C is not None,
-        pc_pe_par_C=100.0 * pente / pleine_echelle_Nm,
-        pc_pe_pour_10C=100.0 * pente * 10.0 / pleine_echelle_Nm,
+        Nm_par_C=pente,
+        Nm_pour_10C=pente * 10.0,
         incertitude_pente_Nm_par_C=erreur_pente,
         r2=r2,
         p_value=p_value,
@@ -1201,7 +1200,6 @@ class DeriveZero:
     zero_debut_Nm: float = float("nan")
     zero_fin_Nm: float = float("nan")
     derive_Nm: float = float("nan")
-    derive_pc_pe: float = float("nan")
     fenetre_debut: tuple[float, float] = (float("nan"), float("nan"))
     fenetre_fin: tuple[float, float] = (float("nan"), float("nan"))
     non_calculable: str | None = None
@@ -1219,7 +1217,7 @@ def derive_zero(
 
     HYPOTHÈSES :
       * un relevé de zéro est une plage contiguë d'au moins `duree_fenetre_s`
-        pendant laquelle |couple de référence| < `seuil_couple_ref_pc_pe` % PE
+        pendant laquelle |couple de référence| < `seuil_couple_ref_Nm` N·m
         et, si le canal existe, |régime| < `seuil_regime` ;
       * la plage « début » doit commencer dans la première `fraction_bord` de
         l'essai, la plage « fin » se terminer dans la dernière `fraction_bord` ;
@@ -1264,7 +1262,6 @@ def derive_zero(
         zero_debut_Nm=zero_debut,
         zero_fin_Nm=zero_fin,
         derive_Nm=derive,
-        derive_pc_pe=100.0 * derive / pleine_echelle_Nm,
         fenetre_debut=(float(t[premiere[0]]), float(t[premiere[1] - 1])),
         fenetre_fin=(float(t[derniere[0]]), float(t[derniere[1] - 1])),
     )
@@ -1277,11 +1274,9 @@ def derive_zero(
 
 @dataclass
 class RedondanceGD:
-    moyenne_pc_pe: float = float("nan")
-    ecart_type_pc_pe: float = float("nan")
-    max_absolu_pc_pe: float = float("nan")
     moyenne_Nm: float = float("nan")
     ecart_type_Nm: float = float("nan")
+    max_absolu_Nm: float = float("nan")
     n: int = 0
     non_calculable: str | None = None
 
@@ -1308,9 +1303,7 @@ def redondance_gauche_droite(
     if d.size < 2:
         return RedondanceGD(non_calculable="résidu gauche−droite non calculable : pas assez d'échantillons valides")
     return RedondanceGD(
-        moyenne_pc_pe=float(100.0 * d.mean() / pleine_echelle_Nm),
-        ecart_type_pc_pe=float(100.0 * d.std(ddof=1) / pleine_echelle_Nm),
-        max_absolu_pc_pe=float(100.0 * np.abs(d).max() / pleine_echelle_Nm),
+        max_absolu_Nm=float(np.abs(d).max()),
         moyenne_Nm=float(d.mean()),
         ecart_type_Nm=float(d.std(ddof=1)),
         n=int(d.size),
@@ -1343,7 +1336,6 @@ class BilanIncertitude:
     exclusions: list[str] = field(default_factory=list)
     u_composee_Nm: float = float("nan")
     U_k2_Nm: float = float("nan")
-    U_k2_pc_pe: float = float("nan")
     minorant: bool = False
     non_calculable: str | None = None
 
@@ -1383,7 +1375,6 @@ def bilan_incertitude(
         exclusions=list(exclusions),
         u_composee_Nm=u_c,
         U_k2_Nm=U,
-        U_k2_pc_pe=100.0 * U / pleine_echelle_Nm,
         minorant=bool(exclusions),
     )
 
@@ -1395,22 +1386,22 @@ def bilan_incertitude(
 
 @dataclass
 class ParametresSPC:
-    mu0_pc_pe: float = float("nan")
-    sigma0_pc_pe: float = float("nan")
-    sigma0_robuste_pc_pe: float = float("nan")
+    mu0_Nm: float = float("nan")
+    sigma0_Nm: float = float("nan")
+    sigma0_robuste_Nm: float = float("nan")
     n: int = 0
     ddl: int = 0
     # CUSUM
-    cusum_k_pc_pe: float = float("nan")
-    cusum_h_alerte_pc_pe: float = float("nan")
-    cusum_h_alarme_pc_pe: float = float("nan")
+    cusum_k_Nm: float = float("nan")
+    cusum_h_alerte_Nm: float = float("nan")
+    cusum_h_alarme_Nm: float = float("nan")
     # EWMA
     ewma_lambda: float = float("nan")
     ewma_L_alerte: float = float("nan")
     ewma_L_alarme: float = float("nan")
-    ewma_sigma_asymptotique_pc_pe: float = float("nan")
-    ewma_limite_alerte_pc_pe: float = float("nan")
-    ewma_limite_alarme_pc_pe: float = float("nan")
+    ewma_sigma_asymptotique_Nm: float = float("nan")
+    ewma_limite_alerte_Nm: float = float("nan")
+    ewma_limite_alarme_Nm: float = float("nan")
     non_calculable: str | None = None
 
 
@@ -1421,10 +1412,10 @@ D2_ETENDUE_MOBILE = 1.128
 
 
 def parametres_spc(
-    echantillons_pc_pe: Sequence[float],
+    echantillons_Nm: Sequence[float],
     ddl: int = 0,
     lam: float = 0.2,
-    sigma0_pc_pe: float | None = None,
+    sigma0_Nm: float | None = None,
 ) -> ParametresSPC:
     """Déduit μ0, σ0 et les seuils CUSUM / EWMA de la dispersion mesurée.
 
@@ -1432,7 +1423,7 @@ def parametres_spc(
     n'est posée a priori.
 
     HYPOTHÈSE IMPORTANTE sur σ0 : la dispersion à porter dans la carte est la
-    répétabilité **à couple de référence constant** (`sigma0_pc_pe`, écart-type
+    répétabilité **à couple de référence constant** (`sigma0_Nm`, écart-type
     poolé intra-niveau), et non l'écart-type brut des résidus toutes conditions
     confondues. Dès qu'il existe une erreur de gain, le résidu varie avec le
     couple appliqué : l'écart-type brut mesurerait alors l'étendue de la plage
@@ -1452,7 +1443,7 @@ def parametres_spc(
                L = 2,0 → ≈ 2 σ, seuil d'**alerte** conventionnel.
         σ_EWMA(∞) = σ0·√(λ / (2 − λ)).
     """
-    x = np.asarray([v for v in echantillons_pc_pe if math.isfinite(v)], dtype=float)
+    x = np.asarray([v for v in echantillons_Nm if math.isfinite(v)], dtype=float)
     if x.size < 2:
         return ParametresSPC(
             n=int(x.size),
@@ -1463,14 +1454,14 @@ def parametres_spc(
         )
 
     mu0 = float(x.mean())
-    sigma0 = float(sigma0_pc_pe) if sigma0_pc_pe is not None else float(x.std(ddof=1))
+    sigma0 = float(sigma0_Nm) if sigma0_Nm is not None else float(x.std(ddof=1))
     etendues = np.abs(np.diff(x))
     sigma_robuste = float(etendues.mean() / D2_ETENDUE_MOBILE) if etendues.size else float("nan")
 
     if sigma0 == 0:
         return ParametresSPC(
-            mu0_pc_pe=mu0,
-            sigma0_pc_pe=0.0,
+            mu0_Nm=mu0,
+            sigma0_Nm=0.0,
             n=int(x.size),
             non_calculable="paramètres SPC non calculables : dispersion nulle sur les essais répétés",
         )
@@ -1478,20 +1469,20 @@ def parametres_spc(
     L_alarme, L_alerte = 2.962, 2.0
     sigma_ewma = sigma0 * math.sqrt(lam / (2.0 - lam))
     return ParametresSPC(
-        mu0_pc_pe=mu0,
-        sigma0_pc_pe=sigma0,
-        sigma0_robuste_pc_pe=sigma_robuste,
+        mu0_Nm=mu0,
+        sigma0_Nm=sigma0,
+        sigma0_robuste_Nm=sigma_robuste,
         n=int(x.size),
         ddl=ddl or int(x.size - 1),
-        cusum_k_pc_pe=0.5 * sigma0,
-        cusum_h_alerte_pc_pe=4.0 * sigma0,
-        cusum_h_alarme_pc_pe=5.0 * sigma0,
+        cusum_k_Nm=0.5 * sigma0,
+        cusum_h_alerte_Nm=4.0 * sigma0,
+        cusum_h_alarme_Nm=5.0 * sigma0,
         ewma_lambda=lam,
         ewma_L_alerte=L_alerte,
         ewma_L_alarme=L_alarme,
-        ewma_sigma_asymptotique_pc_pe=sigma_ewma,
-        ewma_limite_alerte_pc_pe=L_alerte * sigma_ewma,
-        ewma_limite_alarme_pc_pe=L_alarme * sigma_ewma,
+        ewma_sigma_asymptotique_Nm=sigma_ewma,
+        ewma_limite_alerte_Nm=L_alerte * sigma_ewma,
+        ewma_limite_alarme_Nm=L_alarme * sigma_ewma,
     )
 
 
@@ -1547,10 +1538,10 @@ def diagnostiquer(
     signal transitoire, alors que l'inverse n'est pas vrai.
     """
     indices: dict[str, float] = {}
-    offset_pc_pe = 100.0 * reg.b / pleine_echelle_Nm if reg and not reg.non_calculable else float("nan")
+    offset_Nm = reg.b if reg and not reg.non_calculable else float("nan")
     gain_pc = 100.0 * (reg.a - 1.0) if reg and not reg.non_calculable else float("nan")
-    if math.isfinite(offset_pc_pe):
-        indices["offset_pc_pe"] = offset_pc_pe
+    if math.isfinite(offset_Nm):
+        indices["offset_Nm"] = offset_Nm
     if math.isfinite(gain_pc):
         indices["gain_pc"] = gain_pc
     if recal and not recal.non_calculable:
@@ -1617,11 +1608,11 @@ def diagnostiquer(
         )
 
     # 3. Offset
-    if math.isfinite(offset_pc_pe) and abs(offset_pc_pe) > params.seuil_offset_pc_pe:
+    if math.isfinite(offset_Nm) and abs(offset_Nm) > params.seuil_offset_Nm:
         return Diagnostic(
             "offset",
             f"Sur {nom_essai}, l'écart au couple de référence est sensiblement constant sur toute "
-            f"la plage, à {reg.b:+.1f} N·m ({offset_pc_pe:+.2f} % PE), pour une pente de "
+            f"la plage, à {reg.b:+.1f} N·m, pour une pente de "
             f"{reg.a:.4f} proche de l'unité. Il s'agit d'un offset de la chaîne de mesure, "
             f"corrigeable par une remise à zéro avant essai. "
             f"L'aptitude en sensibilité n'est pas remise en cause"
@@ -1661,7 +1652,7 @@ def diagnostiquer(
         "conforme",
         f"Sur {nom_essai}, le couple mesuré par les transmissions suit la référence banc sans "
         f"offset, erreur de gain ni retard significatifs au regard des seuils retenus "
-        f"({params.seuil_offset_pc_pe} % PE, {params.seuil_gain_pc} %, "
+        f"({params.seuil_offset_Nm:g} N·m, {params.seuil_gain_pc:g} %, "
         f"{params.seuil_retard_ms} ms). "
         f"La corrélation est jugée satisfaisante sur cet essai.",
         indices,

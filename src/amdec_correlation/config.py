@@ -50,16 +50,68 @@ class ErreurConfig(RuntimeError):
     """
 
 
-def _construire(cls, donnees: Any, contexte: str):
+# Seuils autrefois exprimés en pourcentage de pleine échelle, aujourd'hui en
+# N·m. Les anciennes clés restent acceptées et converties : une configuration
+# enregistrée l'an dernier doit continuer de se relire, et la refuser sans
+# explication reviendrait à perdre le réglage d'une campagne.
+SEUILS_CONVERTIS: dict[str, str] = {
+    "tolerance_stab_pc_pe": "tolerance_stab_Nm",
+    "ecart_min_paliers_pc_pe": "ecart_min_paliers_Nm",
+    "tolerance_appariement_pc_pe": "tolerance_appariement_Nm",
+    "seuil_activite_pc_pe": "seuil_activite_Nm",
+    "seuil_couple_ref_pc_pe": "seuil_couple_ref_Nm",
+    "seuil_offset_pc_pe": "seuil_offset_Nm",
+}
+
+
+def _reprendre_anciens_seuils(donnees: dict, pleine_echelle_Nm: float,
+                              contexte: str) -> list[str]:
+    """Convertit sur place les seuils encore écrits en % PE. Renvoie les avis.
+
+    La conversion demande la pleine échelle : c'est elle qui donnait leur sens
+    aux anciennes valeurs. Sans elle, on ne saurait pas quoi en faire — et
+    deviner un seuil de détection fausserait toute la campagne en silence.
+    """
+    avis: list[str] = []
+    for ancienne, nouvelle in SEUILS_CONVERTIS.items():
+        if ancienne not in donnees:
+            continue
+        valeur = donnees.pop(ancienne)
+        if nouvelle in donnees:
+            avis.append(
+                f"{contexte} : « {ancienne} » et « {nouvelle} » sont tous deux "
+                f"renseignés ; c'est {nouvelle} qui est retenu."
+            )
+            continue
+        if valeur is None:
+            continue
+        converti = float(valeur) * pleine_echelle_Nm / 100.0
+        donnees[nouvelle] = converti
+        avis.append(
+            f"{contexte} : « {ancienne} » = {valeur:g} % PE est un ancien réglage. "
+            f"Repris en « {nouvelle} » = {converti:g} N·m pour une pleine échelle "
+            f"de {pleine_echelle_Nm:g} N·m."
+        )
+    return avis
+
+
+def _construire(cls, donnees: Any, contexte: str, pleine_echelle_Nm: float | None = None,
+                avis: list[str] | None = None):
     """Instancie une dataclass de paramètres depuis un dict YAML.
 
     Toute clé inconnue lève une erreur : cela évite qu'une faute de frappe dans
-    le YAML passe inaperçue et laisse silencieusement la valeur par défaut.
+    le YAML passe inaperçue et laisse silencieusement la valeur par défaut. Les
+    seuils autrefois en % PE font exception — ils sont convertis, pas refusés.
     """
     if donnees is None:
         return cls()
     if not isinstance(donnees, dict):
         raise ErreurConfig(f"{contexte} : un dictionnaire est attendu, reçu {type(donnees).__name__}.")
+    donnees = dict(donnees)
+    if pleine_echelle_Nm:
+        repris = _reprendre_anciens_seuils(donnees, pleine_echelle_Nm, contexte)
+        if avis is not None:
+            avis.extend(repris)
     connues = {f.name for f in fields(cls)}
     inconnues = set(donnees) - connues
     if inconnues:
@@ -118,21 +170,27 @@ class ParamsPaliers:
     HYPOTHÈSES (documentées dans le rapport) :
       * un palier est une fenêtre glissante de `duree_palier_s` secondes sur
         laquelle l'écart-type du couple de référence reste sous
-        `tolerance_stab_pc_pe` % de la pleine échelle ;
+        `tolerance_stab_Nm` newton-mètres ;
       * la valeur retenue pour le palier est la moyenne sur la
         `fraction_finale` dernière partie du palier, afin d'écarter le
         transitoire d'établissement ;
       * deux paliers consécutifs sont considérés distincts si leurs niveaux de
-        référence diffèrent de plus de `ecart_min_paliers_pc_pe` % PE.
+        référence diffèrent de plus de `ecart_min_paliers_Nm`.
+
+    TOUS LES SEUILS SONT EN N·m, jamais en pourcentage de pleine échelle. Ils
+    ne se transposent donc pas tels quels d'un capteur à l'autre : changer de
+    chaîne de mesure demande de les revoir, ce qu'un seuil relatif aurait fait
+    tout seul. C'est le prix d'une valeur qui se lit sans conversion mentale,
+    et il est assumé.
     """
 
     duree_palier_s: float = 2.0
-    tolerance_stab_pc_pe: float = 0.5
+    tolerance_stab_Nm: float = 7.5
     fraction_finale: float = 0.5
-    ecart_min_paliers_pc_pe: float = 1.0
+    ecart_min_paliers_Nm: float = 15.0
     # Appariement montée/descente pour l'hystérésis, et regroupement des
     # répétitions pour la répétabilité.
-    tolerance_appariement_pc_pe: float = 1.0
+    tolerance_appariement_Nm: float = 15.0
 
 
 @dataclass(frozen=True)
@@ -147,7 +205,7 @@ class ParamsIntercorrelation:
         produit de corrélation et aplatissent le pic ;
       * seules les portions réellement dynamiques sont corrélées, définies par
         un écart-type glissant du couple de référence supérieur à
-        `seuil_activite_pc_pe` % PE ;
+        `seuil_activite_Nm` newton-mètres ;
       * les interruptions de moins de `duree_comblement_s` dans cette détection
         sont comblées : un cycle transitoire passe par des extrema où la
         variance instantanée s'annule sans que la phase cesse d'être dynamique,
@@ -168,7 +226,7 @@ class ParamsIntercorrelation:
 
     retard_max_ms: float = 500.0
     passe_haut_Hz: float | None = 0.2
-    seuil_activite_pc_pe: float = 2.0
+    seuil_activite_Nm: float = 30.0
     fenetre_activite_s: float = 1.0
     duree_comblement_s: float = 5.0
     # Contrôle de cohérence interne du retard. Quatre blocs : en deçà la mesure
@@ -201,12 +259,12 @@ class ParamsZero:
 
     HYPOTHÈSES : un relevé de zéro est une fenêtre d'au moins
     `duree_fenetre_s` secondes pendant laquelle le couple de référence est sous
-    `seuil_couple_ref_pc_pe` % PE en valeur absolue et, si le canal existe, le
+    `seuil_couple_ref_Nm` en valeur absolue et, si le canal existe, le
     régime est sous `seuil_regime` (unité du canal régime).
     """
 
     duree_fenetre_s: float = 5.0
-    seuil_couple_ref_pc_pe: float = 1.0
+    seuil_couple_ref_Nm: float = 15.0
     seuil_regime: float | None = 20.0
     # La plage « début » doit commencer dans cette fraction initiale de l'essai
     # et la plage « fin » se terminer dans la fraction finale correspondante ;
@@ -240,7 +298,7 @@ class ParamsDiagnostic:
     synchronisation / écart de modèle) ; ils n'entrent dans aucun calcul.
     """
 
-    seuil_offset_pc_pe: float = 0.5
+    seuil_offset_Nm: float = 7.5
     seuil_gain_pc: float = 1.0
     seuil_retard_ms: float = 5.0
     # Baisse relative du RMS de résidu après recalage au-delà de laquelle
@@ -299,6 +357,9 @@ class Config:
     # indicateur métrologique. En organisation automatique il n'y a plus d'essai
     # à déclarer un par un : la propriété devient globale.
     ligne_droite: bool = False
+    # Seuils repris d'une ancienne configuration en % PE, avec leur conversion.
+    # Vide dans le cas courant.
+    seuils_repris: tuple[str, ...] = ()
     paliers: ParamsPaliers = field(default_factory=ParamsPaliers)
     intercorrelation: ParamsIntercorrelation = field(default_factory=ParamsIntercorrelation)
     zero: ParamsZero = field(default_factory=ParamsZero)
@@ -329,13 +390,12 @@ class Config:
     def chemin_essai(self, dossier: str) -> Path:
         return self.racine / dossier
 
-    def pc_pe(self, valeur_Nm: float) -> float:
-        """Convertit des N·m en % de la pleine échelle."""
-        return 100.0 * valeur_Nm / self.pleine_echelle_Nm
-
-    def nm(self, valeur_pc_pe: float) -> float:
-        """Convertit des % de pleine échelle en N·m."""
-        return valeur_pc_pe * self.pleine_echelle_Nm / 100.0
+    # Les convertisseurs N·m ⇄ % PE ont été retirés avec le passage de toutes
+    # les grandeurs en N·m. Ce n'est pas un oubli : tant qu'ils existaient, une
+    # conversion pouvait être appliquée à une valeur qui n'en avait plus besoin
+    # — c'est arrivé, et le bilan d'incertitude sortait quinze fois trop grand.
+    # La seule conversion qui subsiste est celle des anciens seuils, à la
+    # lecture du fichier, et elle s'annonce.
 
     # -- chargement -----------------------------------------------------
     @classmethod
@@ -407,6 +467,10 @@ class Config:
                 f"remontage : clé(s) inconnue(s) {sorted(inconnues)}. Clé acceptée : ['realise']."
             )
         realise = remontage.get("realise")
+        # Avis de reprise des seuils encore écrits en % PE, remontés à
+        # l'utilisateur : une conversion silencieuse d'un seuil de détection
+        # changerait ce que l'analyse voit sans que personne ne le sache.
+        repris: list[str] = []
 
         return cls(
             racine=Path(str(requis("racine_donnees"))).expanduser(),
@@ -421,13 +485,16 @@ class Config:
             essais=tuple(essais),
             _canaux_defaut=dict(defaut),
             _canaux_par_dossier=par_dossier,
-            paliers=_construire(ParamsPaliers, brut.get("paliers"), "paliers"),
+            paliers=_construire(ParamsPaliers, brut.get("paliers"), "paliers", pe, repris),
             intercorrelation=_construire(
-                ParamsIntercorrelation, brut.get("intercorrelation"), "intercorrelation"
+                ParamsIntercorrelation, brut.get("intercorrelation"), "intercorrelation",
+                pe, repris,
             ),
-            zero=_construire(ParamsZero, brut.get("zero"), "zero"),
+            zero=_construire(ParamsZero, brut.get("zero"), "zero", pe, repris),
             thermique=_construire(ParamsThermique, brut.get("thermique"), "thermique"),
-            diagnostic=_construire(ParamsDiagnostic, brut.get("diagnostic"), "diagnostic"),
+            diagnostic=_construire(ParamsDiagnostic, brut.get("diagnostic"), "diagnostic",
+                                   pe, repris),
+            seuils_repris=tuple(repris),
         )
 
     def verifier_saisies(self) -> list[str]:

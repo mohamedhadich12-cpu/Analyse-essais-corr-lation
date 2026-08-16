@@ -41,7 +41,10 @@ racine_donnees: "C:/user/SD17365/Documents"   # À RENSEIGNER (chemin exact)
 dossier_sortie: "sortie"
 
 # --- Caractéristiques de la chaîne de mesure ---------------------------------
-pleine_echelle_Nm: 1500.0   # PE du capteur : toutes les grandeurs en « % PE » s'y rapportent
+# Pleine échelle du capteur. Sert à situer les valeurs et à reprendre une
+# configuration ancienne, dont les seuils étaient en pourcentage de cette
+# pleine échelle. TOUS LES SEUILS ET TOUS LES RÉSULTATS SONT EN N·m.
+pleine_echelle_Nm: 1500.0
 
 comparaison:
   # Voie de couple mesuré confrontée à la référence banc :
@@ -178,10 +181,10 @@ canaux:
 # --- Détection des paliers stabilisés ---------------------------------------
 paliers:
   duree_palier_s: 2.0                  # durée minimale d'une plage stabilisée
-  tolerance_stab_pc_pe: 0.5            # écart-type max du couple de référence dans la fenêtre
+  tolerance_stab_Nm: 7.5            # écart-type max du couple de référence dans la fenêtre
   fraction_finale: 0.5                 # part finale du palier effectivement moyennée
-  ecart_min_paliers_pc_pe: 1.0         # écart minimal entre deux paliers distincts
-  tolerance_appariement_pc_pe: 1.0     # appariement montée/descente et regroupement des répétitions
+  ecart_min_paliers_Nm: 15.0         # écart minimal entre deux paliers distincts
+  tolerance_appariement_Nm: 15.0     # appariement montée/descente et regroupement des répétitions
 
 # --- Recalage temporel par intercorrélation ---------------------------------
 intercorrelation:
@@ -195,7 +198,7 @@ intercorrelation:
   # dizaines de millisecondes. La coupure réellement appliquée est indiquée
   # dans le § détail du rapport, essai par essai.
   passe_haut_Hz: 0.2                   # null pour désactiver le filtrage préalable
-  seuil_activite_pc_pe: 2.0            # écart-type mini du couple de référence pour juger « dynamique »
+  seuil_activite_Nm: 30.0            # écart-type mini du couple de référence pour juger « dynamique »
   fenetre_activite_s: 1.0
   # Un cycle passe par des extrema où la variance instantanée s'annule : sans
   # ce comblement, la plage dynamique se fragmenterait en morceaux trop courts.
@@ -239,7 +242,7 @@ intercorrelation:
 # --- Relevés de zéro --------------------------------------------------------
 zero:
   duree_fenetre_s: 5.0
-  seuil_couple_ref_pc_pe: 1.0
+  seuil_couple_ref_Nm: 15.0
   seuil_regime: 20.0                   # unité du canal régime ; null pour ignorer ce critère
   fraction_bord: 0.25                  # le zéro « début » doit tomber dans les 25 % initiaux
 
@@ -259,7 +262,7 @@ thermique:
 # Ces seuils ne servent qu'à choisir la formulation (offset / gain /
 # synchronisation / écart de modèle) ; ils n'entrent dans aucun calcul.
 diagnostic:
-  seuil_offset_pc_pe: 0.5
+  seuil_offset_Nm: 7.5
   seuil_gain_pc: 1.0
   seuil_retard_ms: 5.0
   gain_rms_recalage: 0.30

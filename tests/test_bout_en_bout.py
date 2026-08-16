@@ -130,7 +130,7 @@ def test_balayage_retrouve_l_hysteresis(campagne):
     resultats, _, _, _ = campagne
     hyst = resultats.essai("1-Balayage Couple").hysteresis
     assert hyst.non_calculable is None
-    assert hyst.max_pc_pe == pytest.approx(100 * HYSTERESIS_NM / PLEINE_ECHELLE, abs=0.05)
+    assert hyst.max_Nm == pytest.approx(HYSTERESIS_NM, abs=0.75)
     assert hyst.n_appariements >= 7
 
 
@@ -138,8 +138,8 @@ def test_non_linearite_reste_faible_sur_un_capteur_lineaire(campagne):
     resultats, _, _, _ = campagne
     essai = resultats.essai("1-Balayage Couple")
     # Le générateur n'injecte aucune non-linéarité : seuls le bruit et la
-    # demi-hystérésis subsistent, soit très en deçà de 0,5 % PE.
-    assert essai.non_linearite_pc_pe < 0.5
+    # demi-hystérésis subsistent, soit très en deçà de 7,5 N·m.
+    assert essai.non_linearite_Nm < 7.5
 
 
 def test_repetabilite_est_calculee_sur_les_essais_repetes(campagne):
@@ -147,8 +147,8 @@ def test_repetabilite_est_calculee_sur_les_essais_repetes(campagne):
     rep = resultats.essai("2-CPC 20°C").repetabilite
     assert rep.non_calculable is None
     assert rep.degres_liberte > 0
-    # Biais injectés 0 / +1,2 / −0,9 N·m → σ ≈ 1,05 N·m ≈ 0,07 % PE.
-    assert rep.ecart_type_pc_pe == pytest.approx(0.070, abs=0.03)
+    # Biais injectés 0 / +1,2 / −0,9 N·m → σ ≈ 1,05 N·m.
+    assert rep.ecart_type_Nm == pytest.approx(1.05, abs=0.45)
 
 
 def test_repetabilite_apres_remontage_retrouve_le_biais(campagne):
@@ -223,9 +223,9 @@ def test_parametres_spc_sont_issus_des_essais_repetes(campagne):
     resultats, _, _, _ = campagne
     spc = resultats.spc
     assert spc.non_calculable is None
-    assert spc.sigma0_pc_pe > 0
-    assert spc.cusum_h_alarme_pc_pe == pytest.approx(5.0 * spc.sigma0_pc_pe)
-    assert spc.ewma_limite_alarme_pc_pe > spc.ewma_limite_alerte_pc_pe
+    assert spc.sigma0_Nm > 0
+    assert spc.cusum_h_alarme_Nm == pytest.approx(5.0 * spc.sigma0_Nm)
+    assert spc.ewma_limite_alarme_Nm > spc.ewma_limite_alerte_Nm
 
 
 def test_diagnostic_dynamique_designe_la_cause_dominante(campagne):
@@ -277,14 +277,14 @@ def test_le_rapport_contient_toutes_les_lignes_attendues(campagne):
     chemin = R.ecrire(resultats)
     texte = chemin.read_text(encoding="utf-8")
     for ligne in (
-        "Offset b (% PE)",
+        "Offset b (N·m)",
         "Erreur de sensibilité a−1 (%)",
-        "Non-linéarité (% PE)",
-        "Hystérésis (% PE)",
-        "Répétabilité après remontage (% PE)",
+        "Non-linéarité (N·m)",
+        "Hystérésis (N·m)",
+        "Répétabilité après remontage (N·m)",
         "Retard temporel (ms)",
-        "Sensibilité thermique (% PE pour 10 °C)",
-        "Dérive de zéro sur cycle (% PE)",
+        "Sensibilité thermique (N·m pour 10 °C)",
+        "Dérive de zéro sur cycle (N·m)",
         "Incertitude élargie résultante (k=2)",
     ):
         assert ligne in texte, f"ligne absente du tableau : {ligne}"
@@ -339,7 +339,7 @@ def test_un_seul_groupe_de_remontage_rend_la_grandeur_non_calculable(tmp_path):
     assert resultats.repetabilite_remontage is None
     assert "groupe(s) de remontage" in resultats.motif_remontage
     texte = R.rediger(resultats)
-    assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
+    assert "Répétabilité après remontage (N·m) | **non calculable**" in texte
 
 
 def _pente_mesure_reference(donnees) -> float:
@@ -444,7 +444,7 @@ def test_campagne_sans_remontage_est_motivee_comme_non_definie(tmp_path):
     assert "aucun démontage ni remontage" in motif
     assert "configuration" not in motif
     texte = R.rediger(resultats)
-    assert "Répétabilité après remontage (% PE) | **non calculable**" in texte
+    assert "Répétabilité après remontage (N·m) | **non calculable**" in texte
     # La répétabilité sans remontage doit rester citée en repère, distinguée.
     assert "ce n'est pas la même grandeur" in texte
 

@@ -133,7 +133,7 @@ def test_une_interruption_breve_recolle_bien_le_palier():
 def test_hysteresis_retrouve_ecart_injecte():
     niveaux = [0, 300, 600, 900, 600, 300, 0]
     t, ref = _escalier(niveaux)
-    # 3 N·m d'écart appliqué uniquement à la descente, soit 0,2 % PE.
+    # 3 N·m d'écart appliqué uniquement à la descente.
     montee = np.ones_like(ref, dtype=bool)
     montee[np.searchsorted(t, t[np.argmax(ref)]) :] = False
     mesure = ref.copy()
@@ -142,7 +142,7 @@ def test_hysteresis_retrouve_ecart_injecte():
     paliers = M.detecter_paliers(t, ref, mesure, PE, ParamsPaliers())
     hyst = M.hysteresis(paliers, PE, ParamsPaliers())
     assert hyst.non_calculable is None
-    assert hyst.max_pc_pe == pytest.approx(100 * 3.0 / PE, abs=0.01)
+    assert hyst.max_Nm == pytest.approx(3.0, abs=0.15)
 
 
 def test_hysteresis_non_calculable_sans_descente():
@@ -156,9 +156,9 @@ def test_hysteresis_non_calculable_sans_descente():
 def test_non_linearite_retrouve_ecart_maximal():
     x = np.linspace(0, 1200, 25)
     y = x.copy()
-    y[12] += 7.5  # écart isolé de 7,5 N·m, soit 0,5 % PE
+    y[12] += 7.5  # écart isolé de 7,5 N·m
     reg = M.regression(x, y)
-    assert M.non_linearite_pc_pe(reg, PE) == pytest.approx(0.5, rel=0.15)
+    assert M.non_linearite_Nm(reg, PE) == pytest.approx(7.5, rel=0.15)
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +418,7 @@ def test_sensibilite_thermique_retrouve_la_pente():
     sens = M.sensibilite_thermique(T, residu, PE, ParamsThermique())
     assert sens.non_calculable is None
     assert sens.pente_Nm_par_C == pytest.approx(0.15, rel=0.05)
-    assert sens.pc_pe_pour_10C == pytest.approx(100 * 0.15 * 10 / PE, rel=0.05)
+    assert sens.Nm_pour_10C == pytest.approx(0.15 * 10, rel=0.05)
 
 
 def test_sensibilite_thermique_separe_couple_et_temperature():
@@ -461,11 +461,11 @@ def test_derive_zero_retrouve_la_derive():
     t = np.arange(0, 200.0, 1 / fe)
     ref = np.where((t > 20) & (t < 180), 600.0, 0.0)
     regime = np.where((t > 20) & (t < 180), 900.0, 0.0)
-    # Zéro à 0 N·m au début, à 4,5 N·m à la fin : dérive de +0,3 % PE.
+    # Zéro à 0 N·m au début, à 4,5 N·m à la fin.
     mesure = ref.copy() + np.clip((t - 20.0) / 160.0, 0, 1) * 4.5
     derive = M.derive_zero(t, mesure, ref, regime, PE, ParamsZero())
     assert derive.non_calculable is None
-    assert derive.derive_pc_pe == pytest.approx(0.3, abs=0.02)
+    assert derive.derive_Nm == pytest.approx(4.5, abs=0.3)
 
 
 def test_derive_zero_non_calculable_sans_repos_final():
@@ -486,7 +486,7 @@ def test_redondance_retrouve_ecart_moyen():
     d = np.full(1000, 498.0)
     red = M.redondance_gauche_droite(g, d, PE)
     assert red.moyenne_Nm == pytest.approx(2.0)
-    assert red.moyenne_pc_pe == pytest.approx(100 * 2.0 / PE)
+    assert red.moyenne_Nm == pytest.approx(2.0)
 
 
 def test_redondance_non_calculable_avec_une_seule_voie():
@@ -528,13 +528,13 @@ def test_parametres_spc_derivent_de_la_dispersion_mesuree():
     echantillons = rng.normal(0.4, 0.05, 500)
     spc = M.parametres_spc(echantillons)
     assert spc.non_calculable is None
-    assert spc.mu0_pc_pe == pytest.approx(0.4, abs=0.01)
-    assert spc.sigma0_pc_pe == pytest.approx(0.05, rel=0.1)
+    assert spc.mu0_Nm == pytest.approx(0.4, abs=0.01)
+    assert spc.sigma0_Nm == pytest.approx(0.05, rel=0.1)
     # Les multiplicateurs proviennent des tables ARL, pas d'un choix arbitraire.
-    assert spc.cusum_k_pc_pe == pytest.approx(0.5 * spc.sigma0_pc_pe)
-    assert spc.cusum_h_alarme_pc_pe == pytest.approx(5.0 * spc.sigma0_pc_pe)
-    attendu = spc.sigma0_pc_pe * np.sqrt(0.2 / 1.8)
-    assert spc.ewma_sigma_asymptotique_pc_pe == pytest.approx(attendu)
+    assert spc.cusum_k_Nm == pytest.approx(0.5 * spc.sigma0_Nm)
+    assert spc.cusum_h_alarme_Nm == pytest.approx(5.0 * spc.sigma0_Nm)
+    attendu = spc.sigma0_Nm * np.sqrt(0.2 / 1.8)
+    assert spc.ewma_sigma_asymptotique_Nm == pytest.approx(attendu)
 
 
 def test_parametres_spc_non_calculables_sans_repetition():

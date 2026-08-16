@@ -66,8 +66,8 @@ NIVEAUX_BALAYAGE = (0, 150, 300, 450, 600, 750, 900, 1050, 1200)
 SOMMET_DA_NM = 1000.0       # crête d'un départ arrêté
 RETRO_DA_NM = -150.0        # couple de rétro entre deux départs
 # Agitation du couple de rétro (σ, N·m). Au-dessus de la tolérance de
-# stabilisation (0,5 % PE = 7,5 N·m) pour qu'aucun palier n'y soit détecté,
-# bien au-dessous du seuil d'activité (2 % PE = 30 N·m) pour qu'aucune plage
+# stabilisation (7,5 N·m) pour qu'aucun palier n'y soit détecté, bien
+# au-dessous du seuil d'activité (30 N·m) pour qu'aucune plage
 # dynamique n'y naisse : le rétro n'est ni un point de mesure, ni un transitoire.
 BRUIT_RETRO_NM = 12.0
 
@@ -363,16 +363,16 @@ def fiche_verite(profil: Profil) -> str:
         f"| Erreur de gain | `{GAIN:.4f}`, soit **{100 * (GAIN - 1):+.1f} %** | "
         "régression, pente `a` |",
         f"| Offset | **{OFFSET_NM:+.1f} N·m** "
-        f"({100 * OFFSET_NM / PLEINE_ECHELLE:+.2f} % PE) | régression, ordonnée `b` |",
+        "| régression, ordonnée `b` |",
         f"| Hystérésis montée/descente | **{HYSTERESIS_NM:.1f} N·m** "
-        f"({100 * HYSTERESIS_NM / PLEINE_ECHELLE:.2f} % PE) | hystérésis, sur le "
+        "| hystérésis, sur le "
         "balayage (phases B et C) |",
         f"| Retard de la voie transmissions | **{1000 * RETARD_S:+.0f} ms** | "
         "recalage temporel, médiane sur les fenêtres retenues |",
         f"| Sensibilité thermique | **{SENSIBILITE_TH_NM_PAR_C:.2f} N·m/°C** | "
         "sensibilité thermique |",
         f"| Dérive de zéro | **{derive_thermique:+.2f} N·m** "
-        f"({100 * derive_thermique / PLEINE_ECHELLE:+.2f} % PE) | dérive de zéro |",
+        "| dérive de zéro |",
         f"| Écart systématique gauche − droite | **{ECART_VOIES_NM:+.1f} N·m** | "
         "redondance G/D, **si la case « essai en ligne droite » est cochée** |",
         f"| Bruit de mesure (σ) | {BRUIT_NM:.1f} N·m | — |",

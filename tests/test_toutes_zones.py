@@ -189,8 +189,7 @@ def test_les_defauts_injectes_sont_retrouves(campagne):
 
     hysteresis = resultats.hysteresis_globale
     assert hysteresis.non_calculable is None
-    attendu_pc_pe = 100.0 * HYSTERESIS_NM / PLEINE_ECHELLE
-    assert hysteresis.moyenne_pc_pe == pytest.approx(attendu_pc_pe, abs=0.05)
+    assert hysteresis.moyenne_Nm == pytest.approx(HYSTERESIS_NM, abs=0.6)
 
     assert len(resultats.recalages_globaux) == 1
     _, recalage = resultats.recalages_globaux[0]
@@ -210,6 +209,57 @@ def test_les_defauts_injectes_sont_retrouves(campagne):
     redondance = resultats.redondance
     assert redondance.non_calculable is None
     assert redondance.moyenne_Nm == pytest.approx(ECART_VOIES_NM, abs=0.2)
+
+
+def test_tout_est_en_newton_metres_et_rien_n_est_converti_deux_fois(campagne):
+    """Aucune grandeur ne traîne une conversion en pourcentage de pleine échelle.
+
+    Le piège est silencieux : une valeur déjà en N·m à laquelle on applique
+    encore la conversion depuis les % PE sort quinze fois trop grande sur un
+    capteur de 1500 N·m, sans que rien ne plante. Le bilan d'incertitude est le
+    meilleur témoin — il combine cinq grandeurs, et une seule mal convertie le
+    fait sortir de l'ordre de grandeur du capteur.
+    """
+    resultats, cfg = campagne
+
+    inc = resultats.incertitude
+    assert inc.non_calculable is None
+    for contribution in inc.contributions:
+        assert abs(contribution.valeur_Nm) < 50.0, (
+            f"« {contribution.nom} » vaut {contribution.valeur_Nm:.1f} N·m : "
+            "c'est l'ordre de grandeur d'une valeur convertie deux fois"
+        )
+    # Une chaîne à 1 % d'erreur sur 1500 N·m ne peut pas porter une incertitude
+    # élargie de plusieurs dizaines de N·m.
+    assert inc.U_k2_Nm < 20.0
+
+    # Les grandeurs élémentaires sont bien du même ordre que ce qui est injecté.
+    assert 1.0 < resultats.hysteresis_globale.max_Nm < 10.0
+    _, derive = resultats.derives_zero_globales[0]
+    assert 1.0 < abs(derive.derive_Nm) < 10.0
+    assert 0.0 < resultats.non_linearite_Nm < 20.0
+
+
+def test_une_ancienne_configuration_en_pourcentage_est_reprise(tmp_path, dossier):
+    """Un réglage enregistré en % PE doit continuer de se relire, et le dire.
+
+    Refuser la clé aurait fait perdre le réglage d'une campagne ; la convertir
+    en silence aurait changé ce que la détection voit sans que personne ne le
+    sache. On convertit, et on l'annonce.
+    """
+    ancienne = {
+        "racine_donnees": str(dossier),
+        "pleine_echelle_Nm": PLEINE_ECHELLE,
+        "paliers": {"tolerance_stab_pc_pe": 0.5},
+        "intercorrelation": {"seuil_activite_pc_pe": 2.0},
+    }
+    cfg = Config.depuis_dict(ancienne)
+
+    assert cfg.paliers.tolerance_stab_Nm == pytest.approx(7.5)
+    assert cfg.intercorrelation.seuil_activite_Nm == pytest.approx(30.0)
+    assert len(cfg.seuils_repris) == 2
+    for avis in cfg.seuils_repris:
+        assert "ancien réglage" in avis and "N·m" in avis
 
 
 def test_les_grandeurs_multi_acquisitions_sont_declarees_non_calculables(campagne):

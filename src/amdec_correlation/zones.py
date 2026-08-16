@@ -213,7 +213,7 @@ def niveaux_repetes(
     déclaration : deux acquisitions passant par le même point de fonctionnement
     constituent une répétition, qu'elles proviennent ou non du même protocole.
     """
-    tolerance = cfg.paliers.tolerance_appariement_pc_pe * cfg.pleine_echelle_Nm / 100.0
+    tolerance = cfg.paliers.tolerance_appariement_Nm
     tous = sorted(
         (p for z in zones for p in z.paliers), key=lambda p: p.reference
     )

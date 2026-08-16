@@ -533,8 +533,8 @@ def figure_regression_balayage(paliers, reg, hyst, pleine_echelle_Nm: float,
         ), row=1, col=1)
 
     if not reg.non_calculable:
-        residus_pc = 100.0 * reg.residus / pleine_echelle_Nm
-        sens_tous = [p.sens for p in paliers][: residus_pc.size]
+        residus_Nm = reg.residus
+        sens_tous = [p.sens for p in paliers][: residus_Nm.size]
         figure.add_hline(y=0, line=dict(color=G.AXE, width=1), row=2, col=1)
         for sens, teinte, symbole in (("montee", G.SERIE_1, "circle"),
                                       ("descente", G.SERIE_2, "triangle-up")):
@@ -542,21 +542,20 @@ def figure_regression_balayage(paliers, reg, hyst, pleine_echelle_Nm: float,
             if not idx:
                 continue
             figure.add_trace(_points(
-                [reg.x[i] for i in idx], [residus_pc[i] for i in idx], teinte, None,
+                [reg.x[i] for i in idx], [residus_Nm[i] for i in idx], teinte, None,
                 symbole=symbole,
-                gabarit="référence %{x:.1f} N·m<br>résidu %{y:+.3f} % PE<extra></extra>",
+                gabarit="référence %{x:.1f} N·m<br>résidu %{y:+.2f} N·m<extra></extra>",
             ), row=2, col=1)
-        marge = max(float(np.max(np.abs(residus_pc))) * 1.4, 0.05)
+        marge = max(float(np.max(np.abs(residus_Nm))) * 1.4, 0.05)
         figure.update_yaxes(range=[-marge, marge], row=2, col=1)
 
         lignes = [
             f"a = {reg.a:.4f} ± {reg.sigma_a:.4f}",
             f"b = {reg.b:+.2f} ± {reg.sigma_b:.2f} N·m",
-            f"soit {100 * reg.b / pleine_echelle_Nm:+.2f} % PE",
             f"R² = {reg.r2:.5f}   (n = {reg.n} paliers)",
         ]
         if not hyst.non_calculable:
-            lignes.append(f"hystérésis max = {hyst.max_pc_pe:.3f} % PE")
+            lignes.append(f"hystérésis max = {hyst.max_Nm:.2f} N·m")
         _encadre(figure, "\n".join(lignes))
     else:
         _encadre(figure, reg.non_calculable.replace(" : ", " :\n"))
@@ -564,7 +563,7 @@ def figure_regression_balayage(paliers, reg, hyst, pleine_echelle_Nm: float,
     _chrome(figure, titre=titre, hauteur=620)
     _styler_axes(figure)
     figure.update_yaxes(title_text="Couple mesuré transmissions (N·m)", row=1, col=1)
-    figure.update_yaxes(title_text="Résidu (% PE)", row=2, col=1)
+    figure.update_yaxes(title_text="Résidu (N·m)", row=2, col=1)
     figure.update_xaxes(title_text="Couple de référence banc GMP (N·m)", row=2, col=1)
     return figure
 
@@ -591,30 +590,30 @@ def figure_residu_temperature(sens_th, pleine_echelle_Nm: float,
         pas = max(1, sens_th.nuage_T.size // 6000)
         figure.add_trace(go.Scattergl(
             x=sens_th.nuage_T[::pas],
-            y=100.0 * sens_th.nuage_res[::pas] / pleine_echelle_Nm,
+            y=sens_th.nuage_res[::pas],
             mode="markers", name="échantillons",
             marker=dict(color=G.BLEU_CLAIR, size=3.5, opacity=0.45),
-            hovertemplate="%{x:.1f} °C<br>%{y:+.3f} % PE<extra>échantillon</extra>",
+            hovertemplate="%{x:.1f} °C<br>%{y:+.2f} N·m<extra>échantillon</extra>",
         ))
     if sens_th.temperatures.size:
         figure.add_trace(_points(
-            sens_th.temperatures, 100.0 * sens_th.residus / pleine_echelle_Nm,
+            sens_th.temperatures, sens_th.residus,
             G.SERIE_1, "moyenne par classe de température",
-            gabarit="%{x:.1f} °C<br>%{y:+.3f} % PE<extra>classe</extra>",
+            gabarit="%{x:.1f} °C<br>%{y:+.2f} N·m<extra>classe</extra>",
         ))
     if not sens_th.non_calculable and sens_th.temperatures.size:
         xs = np.linspace(sens_th.temperatures.min(), sens_th.temperatures.max(), 100)
         # La droite est reconstruite à partir de la pente et du barycentre des classes.
-        y0 = float(np.mean(100.0 * sens_th.residus / pleine_echelle_Nm))
+        y0 = float(np.mean(sens_th.residus))
         x0 = float(np.mean(sens_th.temperatures))
         figure.add_trace(go.Scatter(
-            x=xs, y=y0 + sens_th.pc_pe_par_C * (xs - x0), mode="lines",
+            x=xs, y=y0 + sens_th.Nm_par_C * (xs - x0), mode="lines",
             name="régression linéaire", line=dict(color=G.ATTENUE, width=1.4),
             hoverinfo="skip",
         ))
         lignes = [
-            f"sensibilité = {sens_th.pc_pe_par_C:+.4f} % PE/°C",
-            f"soit {sens_th.pc_pe_pour_10C:+.3f} % PE pour 10 °C",
+            f"sensibilité = {sens_th.Nm_par_C:+.4f} N·m/°C",
+            f"soit {sens_th.Nm_pour_10C:+.2f} N·m pour 10 °C",
             f"R² = {sens_th.r2:.3f}   ({sens_th.n_classes} cellules)",
             f"excursion = {sens_th.amplitude_C:.1f} °C",
         ]
@@ -630,8 +629,8 @@ def figure_residu_temperature(sens_th, pleine_echelle_Nm: float,
     _styler_axes(figure)
     figure.update_xaxes(title_text="Température (°C)")
     figure.update_yaxes(title_text=(
-        "Résidu corrigé de l'effet couple (% PE)" if sens_th.correction_couple
-        else "Résidu (% PE)"
+        "Résidu corrigé de l'effet couple (N·m)" if sens_th.correction_couple
+        else "Résidu (N·m)"
     ))
     return figure
 
@@ -767,11 +766,11 @@ def figure_repetabilite(rep, pleine_echelle_Nm: float,
         _chrome(figure, titre=titre, hauteur=420, legende=False)
         _styler_axes(figure)
         figure.update_xaxes(title_text="Couple de référence banc GMP (N·m)")
-        figure.update_yaxes(title_text="Résidu (% PE)")
+        figure.update_yaxes(title_text="Résidu (N·m)")
         return figure
 
     x = [g.reference_moyenne for g in rep.groupes]
-    s = [100.0 * g.ecart_type_residu_Nm / pleine_echelle_Nm for g in rep.groupes]
+    s = [g.ecart_type_residu_Nm for g in rep.groupes]
     figure.add_hline(y=0, line=dict(color=G.AXE, width=1))
     figure.add_trace(go.Scatter(
         x=x, y=[0.0] * len(x), mode="markers", name="±2σ par niveau de couple",
@@ -780,26 +779,26 @@ def figure_repetabilite(rep, pleine_echelle_Nm: float,
         error_y=dict(type="data", array=[2 * v for v in s], color=G.SERIE_1,
                      thickness=1.4, width=5),
         customdata=[[2 * v, g.n] for v, g in zip(s, rep.groupes)],
-        hovertemplate="référence %{x:.1f} N·m<br>±2σ = %{customdata[0]:.3f} % PE"
+        hovertemplate="référence %{x:.1f} N·m<br>±2σ = %{customdata[0]:.2f} N·m"
                       "<br>%{customdata[1]} paliers<extra></extra>",
     ))
     for signe in (1, -1):
         figure.add_hline(
-            y=signe * 2 * rep.ecart_type_pc_pe,
+            y=signe * 2 * rep.ecart_type_Nm,
             line=dict(color=G.ATTENUE, width=1.2),
         )
     figure.add_trace(go.Scatter(
         x=[None], y=[None], mode="lines", line=dict(color=G.ATTENUE, width=1.2),
-        name=f"±2σ poolé = ±{2 * rep.ecart_type_pc_pe:.3f} % PE", hoverinfo="skip",
+        name=f"±2σ poolé = ±{2 * rep.ecart_type_Nm:.2f} N·m", hoverinfo="skip",
     ))
     _encadre(figure,
-             f"σ poolé = {rep.ecart_type_pc_pe:.4f} % PE ({rep.ecart_type_Nm:.2f} N·m)\n"
+             f"σ poolé = {rep.ecart_type_Nm:.3f} N·m\n"
              f"{rep.n_points} paliers, {len(rep.groupes)} niveaux, "
              f"{rep.degres_liberte} ddl")
     _chrome(figure, titre=titre, hauteur=450)
     _styler_axes(figure)
     figure.update_xaxes(title_text="Couple de référence banc GMP (N·m)")
-    figure.update_yaxes(title_text="Résidu (% PE)")
+    figure.update_yaxes(title_text="Résidu (N·m)")
     return figure
 
 
@@ -811,7 +810,7 @@ def figure_repetabilite(rep, pleine_echelle_Nm: float,
 def figure_redondance(t, gauche, droite, pleine_echelle_Nm: float,
                       titre: str = "Redondance des voies — résidu gauche − droite",
                       decimation: int = 1, curseur: str = "unifie"):
-    """Les deux voies, et leur écart en % PE sous elles."""
+    """Les deux voies, et leur écart en N·m sous elles."""
     if go is None:  # pragma: no cover
         raise RuntimeError(disponible()[1])
 
@@ -831,23 +830,23 @@ def figure_redondance(t, gauche, droite, pleine_echelle_Nm: float,
             hovertemplate="%{y:.1f} N·m<extra>" + nom + "</extra>",
         ), row=1, col=1)
 
-    ecart = 100.0 * (gauche - droite) / pleine_echelle_Nm
+    ecart = gauche - droite
     figure.add_hline(y=0, line=dict(color=G.AXE, width=1), row=2, col=1)
     figure.add_trace(trace(
         x=t, y=ecart, name="gauche − droite", mode="lines",
         line=dict(color=G.SERIE_3, width=1.2),
-        hovertemplate="%{y:+.3f} % PE<extra>gauche − droite</extra>",
+        hovertemplate="%{y:+.2f} N·m<extra>gauche − droite</extra>",
     ), row=2, col=1)
 
     fini = ecart[np.isfinite(ecart)]
     if fini.size:
-        _encadre(figure, f"moyenne {fini.mean():+.3f} % PE — "
-                         f"σ {fini.std(ddof=1):.3f} % PE",
+        _encadre(figure, f"moyenne {fini.mean():+.3f} N·m — "
+                         f"σ {fini.std(ddof=1):.3f} N·m",
                  position="bas droite")
     _chrome(figure, titre=titre, hauteur=580, survol=curseur)
     _styler_axes(figure, spikes_x=curseur != "aucun", hoverformat_x=".3f")
     figure.update_yaxes(title_text="Couple (N·m)", row=1, col=1)
-    figure.update_yaxes(title_text="Écart (% PE)", row=2, col=1)
+    figure.update_yaxes(title_text="Écart (N·m)", row=2, col=1)
     figure.update_xaxes(title_text="Temps (s)", row=2, col=1)
     if pas > 1:
         _note(figure, f"Affichage allégé : 1 point sur {pas}.", y=-0.13)

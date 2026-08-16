@@ -99,18 +99,18 @@ DEFAUTS: dict[str, object] = {
     # l'écran. Sans plotly, la valeur reste fausse et l'application le dit,
     # plutôt que de tenter un rendu qui échouerait.
     "graphes_interactifs": GI.disponible()[0],
-    "p::duree_palier_s": 2.0, "p::tolerance_stab_pc_pe": 0.5,
-    "p::fraction_finale": 0.5, "p::ecart_min_paliers_pc_pe": 1.0,
-    "p::tolerance_appariement_pc_pe": 1.0,
+    "p::duree_palier_s": 2.0, "p::tolerance_stab_Nm": 7.5,
+    "p::fraction_finale": 0.5, "p::ecart_min_paliers_Nm": 15.0,
+    "p::tolerance_appariement_Nm": 15.0,
     "i::retard_max_ms": 500.0, "i::passe_haut_Hz": 0.2,
-    "i::seuil_activite_pc_pe": 2.0, "i::fenetre_activite_s": 1.0,
+    "i::seuil_activite_Nm": 30.0, "i::fenetre_activite_s": 1.0,
     "i::duree_comblement_s": 5.0,
     "i::n_blocs_coherence": 4, "i::accord_blocs_max_ms": 20.0,
     "i::fraction_score_min": 0.25, "i::duree_min_fenetre_s": 0.0,
-    "z::duree_fenetre_s": 5.0, "z::seuil_couple_ref_pc_pe": 1.0,
+    "z::duree_fenetre_s": 5.0, "z::seuil_couple_ref_Nm": 15.0,
     "z::seuil_regime": 20.0, "z::fraction_bord": 0.25,
     "t::amplitude_min_C": 5.0,
-    "d::seuil_offset_pc_pe": 0.5, "d::seuil_gain_pc": 1.0,
+    "d::seuil_offset_Nm": 7.5, "d::seuil_gain_pc": 1.0,
     "d::seuil_retard_ms": 5.0, "d::gain_rms_recalage": 0.30,
     "d::seuil_correlation_point_fct": 0.5,
 }
@@ -1055,7 +1055,8 @@ with st.sidebar:
     st.divider()
     st.markdown("**Chaîne de mesure**")
     st.number_input("Pleine échelle capteur (N·m)", min_value=1.0, step=50.0, key="pe",
-                    help="Toutes les grandeurs en « % PE » s'y rapportent.")
+                    help="Sert à situer les valeurs et à reprendre une configuration ancienne, dont les seuils étaient exprimés en pourcentage de cette pleine échelle. "
+                    "Les résultats, eux, sont tous en N·m.")
     st.selectbox(
         "Voie comparée à la référence", MODES_COMPARAISON, key="mode",
         help="Le mode s'applique de la même façon aux voies mesurées et aux voies "
@@ -1662,18 +1663,18 @@ with onglets[HYPOTHESES]:
         st.markdown("**Détection des paliers stabilisés**")
         st.number_input("Durée minimale d'un palier (s)", 0.2, 60.0, step=0.5,
                         key="p::duree_palier_s")
-        st.number_input("Tolérance de stabilité (% PE)", 0.01, 10.0, step=0.1,
-                        key="p::tolerance_stab_pc_pe")
+        st.number_input("Tolérance de stabilité (N·m)", 0.1, 200.0, step=0.5,
+                        key="p::tolerance_stab_Nm")
         st.slider("Fraction finale moyennée", 0.1, 1.0, step=0.05, key="p::fraction_finale")
-        st.number_input("Écart minimal entre paliers (% PE)", 0.1, 20.0, step=0.1,
-                        key="p::ecart_min_paliers_pc_pe")
-        st.number_input("Tolérance d'appariement (% PE)", 0.1, 20.0, step=0.1,
-                        key="p::tolerance_appariement_pc_pe")
+        st.number_input("Écart minimal entre paliers (N·m)", 0.5, 500.0, step=1.0,
+                        key="p::ecart_min_paliers_Nm")
+        st.number_input("Tolérance d'appariement (N·m)", 0.5, 500.0, step=1.0,
+                        key="p::tolerance_appariement_Nm")
         st.markdown("**Relevés de zéro**")
         st.number_input("Durée de fenêtre de repos (s)", 0.5, 120.0, step=1.0,
                         key="z::duree_fenetre_s")
-        st.number_input("Seuil de couple au repos (% PE)", 0.01, 10.0, step=0.1,
-                        key="z::seuil_couple_ref_pc_pe")
+        st.number_input("Seuil de couple au repos (N·m)", 0.1, 200.0, step=0.5,
+                        key="z::seuil_couple_ref_Nm")
         st.number_input("Seuil de régime au repos", 0.0, 5000.0, step=5.0,
                         key="z::seuil_regime")
         st.slider("Position exigée des relevés (fraction de l'essai)", 0.05, 0.5, step=0.05,
@@ -1684,8 +1685,8 @@ with onglets[HYPOTHESES]:
                         key="i::retard_max_ms")
         st.number_input("Passe-haut avant corrélation (Hz) — 0 pour désactiver",
                         0.0, 50.0, step=0.1, key="i::passe_haut_Hz")
-        st.number_input("Seuil d'activité dynamique (% PE)", 0.1, 50.0, step=0.5,
-                        key="i::seuil_activite_pc_pe")
+        st.number_input("Seuil d'activité dynamique (N·m)", 0.5, 1000.0, step=1.0,
+                        key="i::seuil_activite_Nm")
         st.number_input("Fenêtre d'activité (s)", 0.1, 30.0, step=0.5,
                         key="i::fenetre_activite_s")
         st.number_input("Comblement des interruptions (s)", 0.0, 60.0, step=1.0,
@@ -1727,8 +1728,8 @@ with onglets[HYPOTHESES]:
         st.number_input("Excursion thermique minimale (°C)", 0.5, 100.0, step=1.0,
                         key="t::amplitude_min_C")
         st.markdown("**Seuils de rédaction de la conclusion**")
-        st.number_input("Offset significatif (% PE)", 0.01, 10.0, step=0.1,
-                        key="d::seuil_offset_pc_pe")
+        st.number_input("Offset significatif (N·m)", 0.1, 200.0, step=0.5,
+                        key="d::seuil_offset_Nm")
         st.number_input("Gain significatif (%)", 0.01, 20.0, step=0.1, key="d::seuil_gain_pc")
         st.number_input("Retard significatif (ms)", 0.1, 500.0, step=1.0,
                         key="d::seuil_retard_ms")
@@ -1757,6 +1758,10 @@ with onglets[ANALYSE]:
                 st.warning(avertissement)
             for avertissement in cfg.verifier_saisies():
                 st.info(avertissement)
+            # Une conversion de seuil change ce que la détection voit : elle se
+            # signale, elle ne se fait pas en silence.
+            for repris in cfg.seuils_repris:
+                st.warning(repris)
 
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -1810,7 +1815,7 @@ with onglets[ANALYSE]:
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Offset b",
-                  _valeur(100 * reg.b / pe, 3, True, " % PE") if reg else "non calculable")
+                  _valeur(reg.b, 2, True, " N·m") if reg else "non calculable")
         m2.metric("Erreur de sensibilité",
                   _valeur(100 * (reg.a - 1), 3, True, " %") if reg else "non calculable")
         # Même médiane que le rapport : la tuile et le tableau ne doivent pas
@@ -1819,7 +1824,7 @@ with onglets[ANALYSE]:
                   _valeur(float(np.median(retards)), 1, True, " ms")
                   if retards else "non calculable")
         m4.metric("Incertitude élargie (k=2)",
-                  _valeur(inc.U_k2_pc_pe, 3, False, " % PE")
+                  _valeur(inc.U_k2_Nm, 2, False, " N·m")
                   if inc and not inc.non_calculable else "non calculable")
         if inc and inc.minorant:
             # Pas de `delta=` : Streamlit y accolerait une flèche de tendance, qui

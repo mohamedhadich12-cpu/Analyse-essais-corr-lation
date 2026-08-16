@@ -260,10 +260,10 @@ qu'elle alimente.
 
 | Zone repérée | Critère | Ce qu'elle alimente |
 |---|---|---|
-| **Palier stabilisé** | l'écart-type du couple de **référence** reste sous `paliers.tolerance_stab_pc_pe` pendant au moins `paliers.duree_palier_s` | régression (offset, sensibilité, non-linéarité) dès **3 niveaux distincts** dans le fichier ; sinon répétabilité seule |
-| **Montée _et_ descente** dans le même fichier | des paliers de sens opposés existent au même niveau, à `tolerance_appariement_pc_pe` près | hystérésis |
+| **Palier stabilisé** | l'écart-type du couple de **référence** reste sous `paliers.tolerance_stab_Nm` pendant au moins `paliers.duree_palier_s` | régression (offset, sensibilité, non-linéarité) dès **3 niveaux distincts** dans le fichier ; sinon répétabilité seule |
+| **Montée _et_ descente** dans le même fichier | des paliers de sens opposés existent au même niveau, à `tolerance_appariement_Nm` près | hystérésis |
 | **Même niveau atteint par ≥ 2 fichiers** | regroupement des paliers de **toute** la campagne par niveau de couple | répétabilité — deux acquisitions passant par le même point de fonctionnement constituent une répétition, quel qu'ait été le protocole |
-| **Plages dynamiques** | activité continue au-dessus de `intercorrelation.seuil_activite_pc_pe`, les interruptions plus brèves que `duree_comblement_s` étant ignorées, et d'une durée d'au moins `duree_min_fenetre_s`. **Toutes** sont corrélées, sauf celles dont le score amplitude × √durée tombe sous `fraction_score_min` de la meilleure | retard temporel : un retard par fenêtre, médiane retenue |
+| **Plages dynamiques** | activité continue au-dessus de `intercorrelation.seuil_activite_Nm`, les interruptions plus brèves que `duree_comblement_s` étant ignorées, et d'une durée d'au moins `duree_min_fenetre_s`. **Toutes** sont corrélées, sauf celles dont le score amplitude × √durée tombe sous `fraction_score_min` de la meilleure | retard temporel : un retard par fenêtre, médiane retenue |
 | **Plages de repos** | couple et régime quasi nuls ; il en faut **deux distinctes**, l'une dans les premiers `zero.fraction_bord` de l'essai, l'autre dans les derniers | dérive de zéro sur cycle |
 
 Un même fichier peut contenir les trois familles de zones, et c'est fréquent : un
@@ -324,6 +324,23 @@ en silence.
 > produisent le même rapport.
 
 ## Ce qui est calculé, et sous quelles hypothèses
+
+**Tout est en newton-mètres.** Résultats, seuils de détection, figures, tableau
+récapitulatif, bilan d'incertitude, cartes de contrôle : aucune grandeur n'est
+exprimée en pourcentage de pleine échelle. Une valeur se lit sans conversion
+mentale, et se compare directement à ce qu'affiche le banc. Seule l'erreur de
+sensibilité `a−1` reste en %, parce qu'elle est un **rapport** et non un couple.
+
+Deux conséquences à connaître :
+
+* les seuils **ne se transposent plus tels quels d'un capteur à l'autre**. Un
+  seuil relatif s'adaptait tout seul à la pleine échelle ; un seuil en N·m
+  demande d'être revu si l'on change de chaîne de mesure. C'est le prix assumé
+  d'une valeur lisible ;
+* `pleine_echelle_Nm` reste dans la configuration, mais ne sert plus qu'à
+  **situer** les valeurs et à reprendre une configuration ancienne. Les seuils
+  encore écrits en `*_pc_pe` sont convertis à la lecture, et la conversion est
+  annoncée — jamais faite en silence, puisqu'elle change ce que la détection voit.
 
 | Grandeur | Méthode | Hypothèse structurante |
 |---|---|---|

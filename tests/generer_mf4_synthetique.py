@@ -32,8 +32,8 @@ from asammdf import MDF, Signal
 # --- Vérité terrain ---------------------------------------------------------
 PLEINE_ECHELLE = 1500.0
 GAIN = 1.012  # erreur de sensibilité de +1,2 %
-OFFSET_NM = 6.0  # offset de +0,4 % PE
-HYSTERESIS_NM = 3.0  # 0,2 % PE d'écart montée/descente
+OFFSET_NM = 6.0  # offset de la chaîne de mesure
+HYSTERESIS_NM = 3.0  # écart montée/descente
 RETARD_S = 0.040  # 40 ms de retard de la voie transmissions
 SENSIBILITE_TH_NM_PAR_C = 0.15  # N·m/°C
 ECART_VOIES_NM = 2.0  # écart systématique gauche − droite

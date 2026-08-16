@@ -199,28 +199,27 @@ def figure_regression_balayage(
         lignes = [
             f"a = {reg.a:.4f} ± {reg.sigma_a:.4f}",
             f"b = {reg.b:+.2f} ± {reg.sigma_b:.2f} N·m",
-            f"soit {100 * reg.b / pleine_echelle_Nm:+.2f} % PE",
             f"R² = {reg.r2:.5f}   (n = {reg.n} paliers)",
         ]
         if not hyst.non_calculable:
-            lignes.append(f"hystérésis max = {hyst.max_pc_pe:.3f} % PE")
+            lignes.append(f"hystérésis max = {hyst.max_Nm:.2f} N·m")
         _annoter(haut, "\n".join(lignes))
 
-    # Panneau bas : résidus par rapport à la droite, en % PE.
+    # Panneau bas : résidus par rapport à la droite, en N·m.
     if not reg.non_calculable:
-        residus_pc = 100.0 * reg.residus / pleine_echelle_Nm
-        sens = [p.sens for p in paliers][: residus_pc.size]
+        residus_Nm = reg.residus
+        sens = [p.sens for p in paliers][: residus_Nm.size]
         bas.axhline(0, color=AXE, linewidth=0.8, zorder=1)
         for etiquette, couleur, marqueur in (
             ("montee", SERIE_1, "o"), ("descente", SERIE_2, "^")
         ):
             idx = [i for i, s in enumerate(sens) if s == etiquette]
             if idx:
-                _points(bas, reg.x[idx], residus_pc[idx], couleur, None, marqueur)
-        marge = max(float(np.max(np.abs(residus_pc))) * 1.4, 0.05)
+                _points(bas, reg.x[idx], residus_Nm[idx], couleur, None, marqueur)
+        marge = max(float(np.max(np.abs(residus_Nm))) * 1.4, 0.05)
         bas.set_ylim(-marge, marge)
 
-    _habiller(bas, "", "Couple de référence banc GMP (N·m)", "Résidu (% PE)")
+    _habiller(bas, "", "Couple de référence banc GMP (N·m)", "Résidu (N·m)")
     fig.savefig(chemin)
     plt.close(fig)
     return chemin
@@ -241,10 +240,10 @@ def _cadrer_sur_le_nuage(ax, sens_th, pleine_echelle_Nm: float) -> None:
     """
     if not sens_th.nuage_res.size:
         return
-    valeurs = 100.0 * sens_th.nuage_res / pleine_echelle_Nm
+    valeurs = sens_th.nuage_res
     bas, haut = np.percentile(valeurs, [1, 99])
     if sens_th.residus.size:  # les moyennes par classe restent toujours visibles
-        classes = 100.0 * sens_th.residus / pleine_echelle_Nm
+        classes = sens_th.residus
         bas, haut = min(bas, classes.min()), max(haut, classes.max())
     marge = max((haut - bas) * 0.25, 0.05)
     ax.set_ylim(bas - marge, haut + marge)
@@ -269,25 +268,25 @@ def figure_residu_temperature(
     if sens_th.nuage_T.size:
         pas = max(1, sens_th.nuage_T.size // 4000)  # allège le rendu, garde la forme
         ax.plot(
-            sens_th.nuage_T[::pas], 100.0 * sens_th.nuage_res[::pas] / pleine_echelle_Nm,
+            sens_th.nuage_T[::pas], sens_th.nuage_res[::pas],
             "o", color=BLEU_CLAIR, markersize=2.5, linestyle="none", alpha=0.45,
             label="échantillons", zorder=2,
         )
     if sens_th.temperatures.size:
         _points(
-            ax, sens_th.temperatures, 100.0 * sens_th.residus / pleine_echelle_Nm,
+            ax, sens_th.temperatures, sens_th.residus,
             SERIE_1, "moyenne par classe de température",
         )
     if not sens_th.non_calculable and sens_th.temperatures.size:
         xs = np.linspace(sens_th.temperatures.min(), sens_th.temperatures.max(), 100)
         # La droite est reconstruite à partir de la pente et du barycentre des classes.
-        y0 = float(np.mean(100.0 * sens_th.residus / pleine_echelle_Nm))
+        y0 = float(np.mean(sens_th.residus))
         x0 = float(np.mean(sens_th.temperatures))
-        ax.plot(xs, y0 + sens_th.pc_pe_par_C * (xs - x0), color=ATTENUE,
+        ax.plot(xs, y0 + sens_th.Nm_par_C * (xs - x0), color=ATTENUE,
                 linewidth=1.3, label="régression linéaire", zorder=4)
         lignes = [
-            f"sensibilité = {sens_th.pc_pe_par_C:+.4f} % PE/°C",
-            f"soit {sens_th.pc_pe_pour_10C:+.3f} % PE pour 10 °C",
+            f"sensibilité = {sens_th.Nm_par_C:+.4f} N·m/°C",
+            f"soit {sens_th.Nm_pour_10C:+.2f} N·m pour 10 °C",
             f"R² = {sens_th.r2:.3f}   ({sens_th.n_classes} cellules)",
             f"excursion = {sens_th.amplitude_C:.1f} °C",
         ]
@@ -302,9 +301,9 @@ def figure_residu_temperature(
 
     ax.axhline(0, color=AXE, linewidth=0.8, zorder=1)
     ordonnee = (
-        "Résidu corrigé de l'effet couple (% PE)"
+        "Résidu corrigé de l'effet couple (N·m)"
         if sens_th.correction_couple
-        else "Résidu (% PE)"
+        else "Résidu (N·m)"
     )
     _habiller(ax, titre, "Température (°C)", ordonnee)
     _cadrer_sur_le_nuage(ax, sens_th, pleine_echelle_Nm)
@@ -400,14 +399,14 @@ def figure_repetabilite(
     fig, ax = plt.subplots(figsize=(7.0, 4.0))
 
     if rep.non_calculable or not rep.groupes:
-        _habiller(ax, titre, "Couple de référence banc GMP (N·m)", "Résidu (% PE)")
+        _habiller(ax, titre, "Couple de référence banc GMP (N·m)", "Résidu (N·m)")
         _annoter(ax, (rep.non_calculable or "aucun groupe exploitable").replace(" : ", " :\n"))
         fig.savefig(chemin)
         plt.close(fig)
         return chemin
 
     x = [g.reference_moyenne for g in rep.groupes]
-    s = [100.0 * g.ecart_type_residu_Nm / pleine_echelle_Nm for g in rep.groupes]
+    s = [g.ecart_type_residu_Nm for g in rep.groupes]
     ax.axhline(0, color=AXE, linewidth=0.8, zorder=1)
     # ±2σ par niveau : barre d'erreur fine, marqueur cerclé du fond.
     ax.errorbar(
@@ -415,15 +414,15 @@ def figure_repetabilite(
         markersize=6, markeredgecolor=FOND, markeredgewidth=1.2,
         elinewidth=1.4, capsize=4, capthick=1.2, label="±2σ par niveau de couple", zorder=3,
     )
-    ax.axhline(2 * rep.ecart_type_pc_pe, color=ATTENUE, linewidth=1.1,
-               label=f"±2σ poolé = ±{2 * rep.ecart_type_pc_pe:.3f} % PE", zorder=2)
-    ax.axhline(-2 * rep.ecart_type_pc_pe, color=ATTENUE, linewidth=1.1, zorder=2)
+    ax.axhline(2 * rep.ecart_type_Nm, color=ATTENUE, linewidth=1.1,
+               label=f"±2σ poolé = ±{2 * rep.ecart_type_Nm:.2f} N·m", zorder=2)
+    ax.axhline(-2 * rep.ecart_type_Nm, color=ATTENUE, linewidth=1.1, zorder=2)
     _annoter(
         ax,
-        f"σ poolé = {rep.ecart_type_pc_pe:.4f} % PE ({rep.ecart_type_Nm:.2f} N·m)\n"
+        f"σ poolé = {rep.ecart_type_Nm:.3f} N·m\n"
         f"{rep.n_points} paliers, {len(rep.groupes)} niveaux, {rep.degres_liberte} ddl",
     )
-    _habiller(ax, titre, "Couple de référence banc GMP (N·m)", "Résidu (% PE)")
+    _habiller(ax, titre, "Couple de référence banc GMP (N·m)", "Résidu (N·m)")
     _marge_y(ax, haut=0.30, bas=0.22)
     _legende_hors_trace(ax, ncol=2)
     fig.savefig(chemin)
@@ -452,10 +451,10 @@ def figure_redondance(
     _marge_y(haut, haut=0.10, bas=0.10)
     _legende_hors_trace(haut, ncol=2)
 
-    ecart = 100.0 * (np.asarray(gauche) - np.asarray(droite)) / pleine_echelle_Nm
+    ecart = np.asarray(gauche) - np.asarray(droite)
     bas.axhline(0, color=AXE, linewidth=0.8, zorder=1)
     bas.plot(t, ecart, color=SERIE_3, linewidth=1.2, label="gauche − droite", zorder=3)
-    _habiller(bas, "", "Temps (s)", "Écart (% PE)")
+    _habiller(bas, "", "Temps (s)", "Écart (N·m)")
     _marge_y(bas, haut=0.10, bas=0.32)  # place pour l'encadré de valeurs
     # Série 3 (aqua) : sous 3:1 de contraste sur fond clair, la règle de relief
     # impose une identification explicite — d'où la légende et l'encadré chiffré.
@@ -464,7 +463,7 @@ def figure_redondance(
     if fini.size:
         _annoter(
             bas,
-            f"moyenne {fini.mean():+.3f} % PE — σ {fini.std(ddof=1):.3f} % PE",
+            f"moyenne {fini.mean():+.3f} N·m — σ {fini.std(ddof=1):.3f} N·m",
             position="lower right",
         )
     fig.savefig(chemin)

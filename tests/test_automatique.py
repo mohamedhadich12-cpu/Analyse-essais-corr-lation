@@ -148,7 +148,7 @@ def test_l_hysteresis_est_retrouvee(campagne):
     resultats, _ = campagne
     hyst = resultats.hysteresis_globale
     assert hyst.non_calculable is None
-    assert hyst.max_pc_pe == pytest.approx(100 * HYSTERESIS_NM / PLEINE_ECHELLE, abs=0.06)
+    assert hyst.max_Nm == pytest.approx(HYSTERESIS_NM, abs=0.9)
 
 
 def test_le_retard_est_retrouve(campagne):
@@ -172,7 +172,7 @@ def test_la_repetabilite_vient_des_niveaux_partages_entre_fichiers(campagne):
     rep = resultats.repetabilite_globale
     assert rep.non_calculable is None
     assert rep.degres_liberte > 0
-    assert rep.ecart_type_pc_pe > 0
+    assert rep.ecart_type_Nm > 0
 
 
 def test_la_derive_de_zero_est_trouvee_sur_les_cycles(campagne):
@@ -204,10 +204,10 @@ def test_le_rapport_est_complet_en_mode_automatique(campagne):
     resultats, _ = campagne
     texte = R.rediger(resultats)
     for ligne in (
-        "Offset b (% PE)", "Erreur de sensibilité a−1 (%)", "Non-linéarité (% PE)",
-        "Hystérésis (% PE)", "Répétabilité après remontage (% PE)",
-        "Retard temporel (ms)", "Sensibilité thermique (% PE pour 10 °C)",
-        "Dérive de zéro sur cycle (% PE)", "Incertitude élargie résultante (k=2)",
+        "Offset b (N·m)", "Erreur de sensibilité a−1 (%)", "Non-linéarité (N·m)",
+        "Hystérésis (N·m)", "Répétabilité après remontage (N·m)",
+        "Retard temporel (ms)", "Sensibilité thermique (N·m pour 10 °C)",
+        "Dérive de zéro sur cycle (N·m)", "Incertitude élargie résultante (k=2)",
     ):
         assert ligne in texte
     assert "non calculable" in texte  # la répétabilité après remontage

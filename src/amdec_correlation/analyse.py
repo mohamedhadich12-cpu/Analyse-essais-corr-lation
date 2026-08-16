@@ -164,7 +164,7 @@ class ResultatEssai:
     paliers: list[M.Palier] = field(default_factory=list)
     regression: M.Regression | None = None
     hysteresis: M.Hysteresis | None = None
-    non_linearite_pc_pe: float = float("nan")
+    non_linearite_Nm: float = float("nan")
     repetabilite: M.Repetabilite | None = None
     recalages: list[tuple[Path, M.Recalage]] = field(default_factory=list)
     thermique: M.SensibiliteThermique | None = None
@@ -214,7 +214,7 @@ class ResultatCampagne:
     regression_globale: M.Regression | None = None
     source_regression: str = ""
     hysteresis_globale: M.Hysteresis | None = None
-    non_linearite_pc_pe: float = float("nan")
+    non_linearite_Nm: float = float("nan")
     repetabilite_globale: M.Repetabilite | None = None
     recalages_globaux: list[tuple[Path, M.Recalage]] = field(default_factory=list, repr=False)
     derives_zero_globales: list[tuple[str, M.DeriveZero]] = field(default_factory=list, repr=False)
@@ -371,7 +371,7 @@ def traiter_essai(essai: DeclarationEssai, cfg: Config, dossier_figures: Path) -
             [p.reference for p in resultat.paliers], [p.mesure for p in resultat.paliers]
         )
         resultat.regression = reg
-        resultat.non_linearite_pc_pe = M.non_linearite_pc_pe(reg, cfg.pleine_echelle_Nm)
+        resultat.non_linearite_Nm = M.non_linearite_Nm(reg, cfg.pleine_echelle_Nm)
         resultat.hysteresis = M.hysteresis(resultat.paliers, cfg.pleine_echelle_Nm, cfg.paliers)
         resultat.repetabilite = M.repetabilite(
             resultat.paliers, cfg.pleine_echelle_Nm, cfg.paliers
@@ -461,7 +461,7 @@ def _repetabilite_remontage(
 
     # Un « palier moyen par niveau et par groupe » : la dispersion entre groupes
     # à même niveau de couple est l'écart lié au remontage.
-    tolerance = cfg.paliers.tolerance_appariement_pc_pe * cfg.pleine_echelle_Nm / 100.0
+    tolerance = cfg.paliers.tolerance_appariement_Nm
     representatifs: list[M.Palier] = []
     for etiquette, paliers in groupes.items():
         tries = sorted(paliers, key=lambda p: p.reference)
@@ -488,7 +488,7 @@ def _repetabilite_remontage(
 
 
 def _residus_centres_par_niveau(campagne: ResultatCampagne, cfg: Config) -> list[float]:
-    """Résidus des essais répétés (% PE), centrés par essai ET par niveau de couple.
+    """Résidus des essais répétés (N·m), centrés par essai ET par niveau de couple.
 
     Le sous-groupe de centrage est le couple (essai, niveau de couple). La
     dispersion de la série obtenue est donc la variabilité **court terme** de la
@@ -504,7 +504,7 @@ def _residus_centres_par_niveau(campagne: ResultatCampagne, cfg: Config) -> list
     tous = [p for e in essais for p in e.paliers]
     if not tous:
         return []
-    tolerance = cfg.paliers.tolerance_appariement_pc_pe * cfg.pleine_echelle_Nm / 100.0
+    tolerance = cfg.paliers.tolerance_appariement_Nm
     moyenne_globale = float(np.mean([p.residu for p in tous]))
 
     centres: list[float] = []
@@ -521,7 +521,7 @@ def _residus_centres_par_niveau(campagne: ResultatCampagne, cfg: Config) -> list
         for groupe in groupes:
             moyenne_groupe = float(np.mean([p.residu for p in groupe]))
             centres.extend(
-                100.0 * (p.residu - moyenne_groupe + moyenne_globale) / cfg.pleine_echelle_Nm
+                p.residu - moyenne_groupe + moyenne_globale
                 for p in groupe
             )
     return centres
@@ -536,10 +536,10 @@ def _incertitude(campagne: ResultatCampagne, cfg: Config) -> M.BilanIncertitude:
     balayages = campagne.par_type("balayage")
     reg_essai = next((e for e in balayages if e.regression and not e.regression.non_calculable), None)
 
-    if reg_essai and np.isfinite(reg_essai.non_linearite_pc_pe):
+    if reg_essai and np.isfinite(reg_essai.non_linearite_Nm):
         contributions.append(
             M.Contribution(
-                "Non-linéarité", cfg.nm(reg_essai.non_linearite_pc_pe), "rectangulaire",
+                "Non-linéarité", reg_essai.non_linearite_Nm, "rectangulaire",
                 f"résidu max de la régression, essai « {reg_essai.nom} »",
             )
         )
@@ -553,7 +553,7 @@ def _incertitude(campagne: ResultatCampagne, cfg: Config) -> M.BilanIncertitude:
         # Demi-étendue : l'hystérésis est un écart crête à crête entre montée et
         # descente, la valeur possible autour de la moyenne vaut donc H/2.
         contributions.append(
-            M.Contribution("Hystérésis", cfg.nm(hyst.max_pc_pe) / 2.0, "rectangulaire",
+            M.Contribution("Hystérésis", hyst.max_Nm / 2.0, "rectangulaire",
                            "demi-écart montée/descente")
         )
     else:
@@ -572,11 +572,11 @@ def _incertitude(campagne: ResultatCampagne, cfg: Config) -> M.BilanIncertitude:
     else:
         exclusions.append("répétabilité (aucun essai répété exploitable)")
 
-    derives = [d.derive_pc_pe for e in campagne.essais for d in e.derives_zero_valides]
+    derives = [d.derive_Nm for e in campagne.essais for d in e.derives_zero_valides]
     if derives:
         pire = max(derives, key=abs)
         contributions.append(
-            M.Contribution("Dérive de zéro", cfg.nm(pire), "rectangulaire",
+            M.Contribution("Dérive de zéro", pire, "rectangulaire",
                            f"dérive la plus forte sur {len(derives)} essai(s)")
         )
     else:
@@ -711,9 +711,9 @@ def analyser_declare(cfg: Config) -> ResultatCampagne:
     sigma0 = None
     if reps and ddl:
         sigma0 = math.sqrt(
-            sum(r.degres_liberte * r.ecart_type_pc_pe**2 for r in reps) / ddl
+            sum(r.degres_liberte * r.ecart_type_Nm**2 for r in reps) / ddl
         )
-    campagne.spc = M.parametres_spc(residus_repetes, ddl=ddl, sigma0_pc_pe=sigma0)
+    campagne.spc = M.parametres_spc(residus_repetes, ddl=ddl, sigma0_Nm=sigma0)
 
     campagne.repetabilite_remontage, campagne.motif_remontage = _repetabilite_remontage(campagne, cfg)
     _diagnostics(campagne, cfg)
@@ -738,7 +738,7 @@ def _consolider_depuis_essais(campagne: ResultatCampagne, cfg: Config) -> None:
     if essai:
         campagne.regression_globale = essai.regression
         campagne.source_regression = f"essai « {essai.nom} »"
-        campagne.non_linearite_pc_pe = essai.non_linearite_pc_pe
+        campagne.non_linearite_Nm = essai.non_linearite_Nm
     elif balayages:
         campagne.regression_globale = balayages[0].regression
     campagne.hysteresis_globale = next(
@@ -891,7 +891,7 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
             f"{len(paliers_tous)} paliers de "
             f"{len({p.source for p in paliers_tous})} acquisition(s)"
         )
-        campagne.non_linearite_pc_pe = M.non_linearite_pc_pe(
+        campagne.non_linearite_Nm = M.non_linearite_Nm(
             campagne.regression_globale, cfg.pleine_echelle_Nm
         )
         campagne.figures.append(
@@ -912,7 +912,7 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
     ]
     valides = [h for h in hysteresis_par_fichier if not h.non_calculable]
     if valides:
-        campagne.hysteresis_globale = max(valides, key=lambda h: h.max_pc_pe)
+        campagne.hysteresis_globale = max(valides, key=lambda h: h.max_Nm)
     elif hysteresis_par_fichier:
         campagne.hysteresis_globale = hysteresis_par_fichier[0]
     else:
@@ -997,15 +997,14 @@ def _spc_automatique(campagne: ResultatCampagne, cfg: Config, repetes: dict) -> 
     tous = [p for groupe in repetes.values() for p in groupe]
     moyenne_globale = float(np.mean([p.residu for p in tous]))
     centres = [
-        100.0 * (p.residu - float(np.mean([q.residu for q in groupe])) + moyenne_globale)
-        / cfg.pleine_echelle_Nm
+        p.residu - float(np.mean([q.residu for q in groupe])) + moyenne_globale
         for groupe in repetes.values()
         for p in groupe
     ]
     rep = campagne.repetabilite_globale
-    sigma0 = rep.ecart_type_pc_pe if rep and not rep.non_calculable else None
+    sigma0 = rep.ecart_type_Nm if rep and not rep.non_calculable else None
     ddl = rep.degres_liberte if rep and not rep.non_calculable else 0
-    return M.parametres_spc(centres, ddl=ddl, sigma0_pc_pe=sigma0)
+    return M.parametres_spc(centres, ddl=ddl, sigma0_Nm=sigma0)
 
 
 def _incertitude_globale(campagne: ResultatCampagne, cfg: Config) -> M.BilanIncertitude:
@@ -1013,9 +1012,9 @@ def _incertitude_globale(campagne: ResultatCampagne, cfg: Config) -> M.BilanInce
     contributions: list[M.Contribution] = []
     exclusions: list[str] = []
 
-    if math.isfinite(campagne.non_linearite_pc_pe):
+    if math.isfinite(campagne.non_linearite_Nm):
         contributions.append(M.Contribution(
-            "Non-linéarité", cfg.nm(campagne.non_linearite_pc_pe), "rectangulaire",
+            "Non-linéarité", campagne.non_linearite_Nm, "rectangulaire",
             f"résidu max de la régression sur {campagne.source_regression}"))
     else:
         exclusions.append("non-linéarité (aucune régression exploitable)")
@@ -1023,7 +1022,7 @@ def _incertitude_globale(campagne: ResultatCampagne, cfg: Config) -> M.BilanInce
     hyst = campagne.hysteresis_globale
     if hyst and not hyst.non_calculable:
         contributions.append(M.Contribution(
-            "Hystérésis", cfg.nm(hyst.max_pc_pe) / 2.0, "rectangulaire",
+            "Hystérésis", hyst.max_Nm / 2.0, "rectangulaire",
             "demi-écart montée/descente"))
     else:
         exclusions.append("hystérésis (aucun appariement montée/descente)")
@@ -1036,10 +1035,10 @@ def _incertitude_globale(campagne: ResultatCampagne, cfg: Config) -> M.BilanInce
     else:
         exclusions.append("répétabilité (aucun niveau répété)")
 
-    derives = [d.derive_pc_pe for _, d in campagne.derives_zero_globales]
+    derives = [d.derive_Nm for _, d in campagne.derives_zero_globales]
     if derives:
         contributions.append(M.Contribution(
-            "Dérive de zéro", cfg.nm(max(derives, key=abs)), "rectangulaire",
+            "Dérive de zéro", max(derives, key=abs), "rectangulaire",
             f"dérive la plus forte sur {len(derives)} acquisition(s)"))
     else:
         exclusions.append("dérive de zéro (aucun relevé de zéro avant/après identifiable)")
