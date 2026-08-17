@@ -297,6 +297,54 @@ def _mise_en_perspective_remontage(campagne: ResultatCampagne) -> str:
     )
 
 
+def section_concordance(campagne: ResultatCampagne) -> str:
+    """Biais et limites de concordance, au sens de Bland & Altman."""
+    ba = campagne.bland_altman
+    if ba is None or ba.non_calculable:
+        return f"{NON_CALCULABLE} — {_motif(ba.non_calculable if ba else None)}.\n"
+
+    texte = f"""Écart entre les deux méthodes sur les paliers stabilisés, un point par palier.
+La différence est `transmissions − banc` ; l'abscisse est la moyenne des deux
+méthodes, comme dans la méthode d'origine.
+
+| Grandeur | Valeur | Lecture |
+|---|---|---|
+| Biais | **{ba.biais_Nm:+.2f} N·m** | écart moyen : la transmission lit {'plus' if ba.biais_Nm >= 0 else 'moins'} fort que le banc |
+| σ des écarts | {ba.ecart_type_Nm:.2f} N·m | dispersion autour de ce biais |
+| Limite basse (95 %) | {ba.limite_basse_Nm:+.2f} N·m | biais − {M.FACTEUR_LIMITES:g} σ |
+| Limite haute (95 %) | {ba.limite_haute_Nm:+.2f} N·m | biais + {M.FACTEUR_LIMITES:g} σ |
+| Incertitude des limites | ±{ba.demi_ic_limites_Nm:.2f} N·m | intervalle de confiance à 95 %, sur {ba.n} paliers |
+
+**Formulation citable** : sur cette campagne, le couple mesuré par les
+transmissions instrumentées s'écarte du couple de référence banc de
+{ba.biais_Nm:+.2f} N·m en moyenne, et l'écart reste compris entre
+{ba.limite_basse_Nm:+.2f} et {ba.limite_haute_Nm:+.2f} N·m dans 95 % des cas.
+"""
+    if ba.tendance_significative:
+        texte += (
+            f"\n⚠️ **L'écart n'est pas constant** : il croît de "
+            f"{1000 * ba.pente_tendance:+.1f} N·m par kN·m de couple appliqué "
+            f"(p = {ba.p_tendance:.1e}). Les limites de concordance ci-dessus, qui "
+            "sont constantes, sont donc **trop larges au milieu de la plage et trop "
+            "étroites aux extrémités**. C'est la signature d'une erreur de gain, "
+            "déjà quantifiée par la pente de la régression : à ce titre les deux "
+            "lectures se recoupent, et c'est la correction du gain qui ramènerait "
+            "les écarts dans une bande constante.\n"
+        )
+    else:
+        texte += (
+            "\nL'écart ne dépend pas significativement du niveau de couple : les "
+            "limites de concordance constantes sont applicables sur toute la plage.\n"
+        )
+    if not ba.limites_fiables:
+        texte += (
+            f"\n⚠️ Seulement {ba.n} paliers : les limites de concordance sont mal "
+            f"déterminées (il en faudrait au moins {M.N_MIN_LIMITES_FIABLES}). "
+            "À citer avec leur intervalle de confiance, jamais seules.\n"
+        )
+    return texte
+
+
 def section_spc(campagne: ResultatCampagne) -> str:
     spc = campagne.spc
     if spc is None or spc.non_calculable:
@@ -605,23 +653,26 @@ Toutes les grandeurs sont en N·m. La pleine échelle du capteur, {cfg.pleine_ec
 ## 10.2 Conclusions par essai dynamique
 
 {section_conclusions(campagne)}
-## 10.3 Bilan d'incertitude
+## 10.3 Concordance des deux méthodes (Bland–Altman)
+
+{section_concordance(campagne)}
+## 10.4 Bilan d'incertitude
 
 {section_incertitude(campagne)}
-## 10.4 Paramètres proposés pour les cartes de contrôle (chapitre 11)
+## 10.5 Paramètres proposés pour les cartes de contrôle (chapitre 11)
 
 {section_spc(campagne)}
-## 10.5 {titre_detail}
+## 10.6 {titre_detail}
 
 {section_detail_essais(campagne)}
-## 10.6 Hypothèses de traitement
+## 10.7 Hypothèses de traitement
 
 {section_hypotheses(campagne)}
-## 10.7 Avertissements (mapping et saisies utilisateur)
+## 10.8 Avertissements (mapping et saisies utilisateur)
 
 {avertissements}
 
-## 10.8 Figures produites
+## 10.9 Figures produites
 
 {liste_figures}
 

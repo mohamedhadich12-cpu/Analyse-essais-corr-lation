@@ -431,6 +431,10 @@ def _figures_interactives(campagne) -> dict:
             M.hysteresis(paliers, pe, cfg.paliers), pe,
             titre="Paliers stabilisés — corrélation transmissions / banc GMP",
         )
+    if campagne.bland_altman is not None:
+        fabriques["Concordance (Bland–Altman)"] = lambda: GI.figure_bland_altman(
+            campagne.bland_altman, pe,
+        )
     if campagne.thermique_globale is not None:
         fabriques["Résidu vs température"] = lambda: GI.figure_residu_temperature(
             campagne.thermique_globale, pe,

@@ -145,6 +145,73 @@ def test_hysteresis_retrouve_ecart_injecte():
     assert hyst.max_Nm == pytest.approx(3.0, abs=0.15)
 
 
+def _paliers_avec_gain(gain: float, offset: float, bruit: float = 0.0,
+                       graine: int = 3) -> list:
+    """Paliers d'un balayage montée + descente sur une chaîne à défaut connu."""
+    rng = np.random.default_rng(graine)
+    niveaux = [0, 150, 300, 450, 600, 750, 900, 1050, 1200]
+    return [
+        M.Palier(0, 1, reference=float(x),
+                 mesure=gain * x + offset + rng.normal(0, bruit) if bruit
+                 else gain * x + offset,
+                 ecart_type_mesure=0, ecart_type_reference=0, n=100,
+                 sens="montee" if i < len(niveaux) else "descente")
+        for i, x in enumerate(niveaux * 2)
+    ]
+
+
+def test_bland_altman_retrouve_le_biais_et_ses_limites():
+    """Biais et limites de concordance sur une chaîne à écart connu."""
+    # Écart constant de +8 N·m, sans erreur de gain : le biais vaut 8, la
+    # dispersion des écarts est nulle, et il n'y a aucune tendance.
+    paliers = _paliers_avec_gain(gain=1.0, offset=8.0)
+    ba = M.bland_altman(paliers)
+
+    assert ba.non_calculable is None
+    assert ba.biais_Nm == pytest.approx(8.0, abs=1e-9)
+    assert ba.ecart_type_Nm == pytest.approx(0.0, abs=1e-9)
+    assert ba.limite_basse_Nm == pytest.approx(8.0, abs=1e-9)
+    assert ba.limite_haute_Nm == pytest.approx(8.0, abs=1e-9)
+    assert ba.n == 18
+
+
+def test_bland_altman_signale_un_ecart_proportionnel_au_niveau():
+    """Une erreur de gain rend les limites constantes trompeuses : il faut le dire.
+
+    C'est le point que la méthode d'origine insiste à vérifier — des limites de
+    concordance fixes n'ont de sens que si l'écart ne dépend pas du niveau.
+    """
+    paliers = _paliers_avec_gain(gain=1.012, offset=6.0, bruit=1.5)
+    ba = M.bland_altman(paliers)
+
+    assert ba.tendance_significative, (
+        f"pente {ba.pente_tendance:.5f}, p = {ba.p_tendance:.2e}"
+    )
+    # L'abscisse étant la MOYENNE des deux méthodes, la pente attendue vaut
+    # 0,012 / 1,006 et non 0,012 — la moyenne porte déjà la moitié de l'écart.
+    assert ba.pente_tendance == pytest.approx(0.012 / 1.006, abs=0.004)
+
+    # Sans erreur de gain, aucune tendance ne doit être signalée.
+    plat = M.bland_altman(_paliers_avec_gain(gain=1.0, offset=6.0, bruit=1.5))
+    assert not plat.tendance_significative
+
+
+def test_bland_altman_refuse_de_conclure_sur_trop_peu_de_paliers():
+    """Trois paliers au minimum, et en deçà de dix les limites sont annoncées fragiles."""
+    paliers = _paliers_avec_gain(gain=1.01, offset=5.0, bruit=1.0)
+
+    refus = M.bland_altman(paliers[:2])
+    assert refus.non_calculable is not None
+    assert "au moins 3" in refus.non_calculable
+
+    maigre = M.bland_altman(paliers[:6])
+    assert maigre.non_calculable is None
+    assert not maigre.limites_fiables, (
+        "six paliers ne suffisent pas à asseoir des limites de concordance"
+    )
+    assert M.bland_altman(paliers).limites_fiables
+
+
 def test_hysteresis_non_calculable_sans_descente():
     t, ref = _escalier([0, 300, 600, 900])
     paliers = M.detecter_paliers(t, ref, ref.copy(), PE, ParamsPaliers())
@@ -795,6 +862,35 @@ def test_chaque_figure_du_rapport_a_son_equivalent_interactif():
     assert {trace.name for trace in figure.data} == {
         "transmission gauche", "transmission droite", "gauche − droite"
     }
+
+
+def test_la_figure_de_concordance_porte_biais_limites_et_tendance():
+    """La figure doit rendre lisibles les trois choses qui se citent."""
+    import matplotlib.pyplot as plt
+
+    from amdec_correlation import graphiques
+    from amdec_correlation import graphiques_interactifs as GI
+
+    disponible, raison = GI.disponible()
+    if not disponible:
+        pytest.skip(raison)
+
+    ba = M.bland_altman(_paliers_avec_gain(gain=1.012, offset=6.0, bruit=1.5))
+    figure = GI.figure_bland_altman(ba, PE)
+    noms = " | ".join(trace.name or "" for trace in figure.data)
+
+    assert "biais" in noms and "limites de concordance" in noms
+    assert "tendance" in noms, "l'écart est proportionnel : la tendance doit être tracée"
+    encadre = figure.layout.annotations[0].text
+    assert f"{ba.biais_Nm:+.2f}" in encadre
+    assert "proportionnel" in encadre
+
+    # L'image fixe porte les mêmes repères, en matplotlib.
+    fixe = graphiques.figure_bland_altman(ba, PE)
+    libelles = [t.get_text() for t in fixe.axes[0].get_legend().get_texts()]
+    plt.close(fixe)
+    assert any("biais" in x for x in libelles)
+    assert any("limites de concordance" in x for x in libelles)
 
 
 def test_les_figures_interactives_gardent_la_palette_des_images_fixes():

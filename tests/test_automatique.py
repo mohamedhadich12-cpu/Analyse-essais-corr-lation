@@ -217,7 +217,7 @@ def test_le_detail_remonte_chaque_acquisition_a_sa_source(campagne):
     """Sans essai déclaré, le § détail doit rester traçable fichier par fichier."""
     resultats, _ = campagne
     texte = R.rediger(resultats)
-    assert "## 10.5 Détail par acquisition" in texte
+    assert "## 10.6 Détail par acquisition" in texte
     for zone in resultats.zones:
         assert f"`{zone.chemin.name}`" in texte
     # Et les grandeurs par fichier y figurent, pas seulement la synthèse.

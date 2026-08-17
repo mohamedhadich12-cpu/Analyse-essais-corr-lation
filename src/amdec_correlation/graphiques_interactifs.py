@@ -851,3 +851,93 @@ def figure_redondance(t, gauche, droite, pleine_echelle_Nm: float,
     if pas > 1:
         _note(figure, f"Affichage allégé : 1 point sur {pas}.", y=-0.13)
     return figure
+
+
+# ---------------------------------------------------------------------------
+# Concordance des deux méthodes (Bland–Altman)
+# ---------------------------------------------------------------------------
+
+
+def figure_bland_altman(ba, pleine_echelle_Nm: float,
+                        titre: str = "Concordance transmissions / banc GMP "
+                                     "(Bland–Altman)"):
+    """Écart entre les deux méthodes en fonction du niveau de couple.
+
+    Même contenu que l'image fixe. Ce que le survol ajoute : chaque point rend
+    l'instant du palier et sa température, de quoi rattacher un écart isolé à
+    un moment de la campagne — un nuage figé ne le permet pas.
+    """
+    if go is None:  # pragma: no cover
+        raise RuntimeError(disponible()[1])
+
+    figure = go.Figure()
+    if ba.non_calculable:
+        _encadre(figure, ba.non_calculable.replace(" : ", " :\n"))
+        _chrome(figure, titre=titre, hauteur=470, legende=False)
+        _styler_axes(figure)
+        figure.update_xaxes(title_text="Moyenne des deux méthodes (N·m)")
+        figure.update_yaxes(title_text="Transmissions − banc (N·m)")
+        return figure
+
+    # Bandes d'incertitude des limites, en fond : ce sont des repères, et leur
+    # imprécision doit se voir sans disputer la lisibilité au nuage.
+    if np.isfinite(ba.demi_ic_limites_Nm):
+        for limite in (ba.limite_basse_Nm, ba.limite_haute_Nm):
+            figure.add_hrect(
+                y0=limite - ba.demi_ic_limites_Nm, y1=limite + ba.demi_ic_limites_Nm,
+                fillcolor=G.ATTENUE, opacity=0.10, line_width=0, layer="below",
+            )
+    figure.add_hline(y=ba.biais_Nm, line=dict(color=G.ENCRE_2, width=1.4))
+    for limite in (ba.limite_basse_Nm, ba.limite_haute_Nm):
+        figure.add_hline(y=limite, line=dict(color=G.ATTENUE, width=1.2, dash="dash"))
+    # Traces sans point, pour que la légende nomme ces deux repères.
+    for teinte, tiret, libelle in (
+        (G.ENCRE_2, "solid", f"biais {ba.biais_Nm:+.2f} N·m"),
+        (G.ATTENUE, "dash",
+         f"limites de concordance : {ba.limite_basse_Nm:+.2f} à "
+         f"{ba.limite_haute_Nm:+.2f} N·m"),
+    ):
+        figure.add_trace(go.Scatter(
+            x=[None], y=[None], mode="lines", name=libelle,
+            line=dict(color=teinte, width=1.4, dash=tiret), hoverinfo="skip",
+        ))
+
+    for sens, libelle, teinte, symbole in (
+        ("montee", "montée", G.SERIE_1, "circle"),
+        ("descente", "descente", G.SERIE_2, "triangle-up"),
+        ("indetermine", "sens indéterminé", G.TEINTE_PALIER, "square"),
+    ):
+        idx = [i for i, s in enumerate(ba.sens) if s == sens]
+        if not idx:
+            continue
+        figure.add_trace(_points(
+            ba.moyennes_Nm[idx], ba.differences_Nm[idx], teinte, libelle,
+            symbole=symbole,
+            gabarit="moyenne %{x:.1f} N·m<br>écart %{y:+.2f} N·m"
+                    f"<extra>{libelle}</extra>",
+        ))
+
+    if ba.tendance_significative:
+        xs = np.linspace(float(ba.moyennes_Nm.min()), float(ba.moyennes_Nm.max()), 50)
+        figure.add_trace(go.Scatter(
+            x=xs,
+            y=ba.biais_Nm + ba.pente_tendance * (xs - float(ba.moyennes_Nm.mean())),
+            mode="lines", name="tendance de l'écart",
+            line=dict(color=G.SERIE_3, width=1.4, dash="dot"), hoverinfo="skip",
+        ))
+
+    lignes = G._lignes_bland_altman(ba)
+    if ba.tendance_significative:
+        lignes.append(
+            f"⚠ écart proportionnel au niveau : {1000 * ba.pente_tendance:+.1f} N·m "
+            f"par kN·m (p = {ba.p_tendance:.1e})"
+        )
+    if not ba.limites_fiables:
+        lignes.append("⚠ peu de paliers : limites mal déterminées")
+    _encadre(figure, "\n".join(lignes))
+
+    _chrome(figure, titre=titre, hauteur=520)
+    _styler_axes(figure)
+    figure.update_xaxes(title_text="Moyenne des deux méthodes (N·m)")
+    figure.update_yaxes(title_text="Transmissions − banc (N·m)")
+    return figure

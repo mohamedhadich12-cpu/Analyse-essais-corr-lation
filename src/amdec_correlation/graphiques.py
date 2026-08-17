@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .metriques import (
+    FACTEUR_LIMITES,
     Hysteresis,
     Palier,
     Recalage,
@@ -223,6 +224,112 @@ def figure_regression_balayage(
     fig.savefig(chemin)
     plt.close(fig)
     return chemin
+
+
+# ---------------------------------------------------------------------------
+# 1 bis. Concordance des deux méthodes (Bland–Altman)
+# ---------------------------------------------------------------------------
+
+
+def _lignes_bland_altman(ba) -> list[str]:
+    """Encadré de valeurs de la figure de concordance."""
+    lignes = [
+        f"biais = {ba.biais_Nm:+.2f} N·m",
+        f"σ des écarts = {ba.ecart_type_Nm:.2f} N·m",
+        f"limites (95 %) : {ba.limite_basse_Nm:+.2f} à {ba.limite_haute_Nm:+.2f} N·m",
+        f"n = {ba.n} paliers",
+    ]
+    if math.isfinite(ba.demi_ic_limites_Nm):
+        lignes.append(f"IC 95 % des limites : ±{ba.demi_ic_limites_Nm:.2f} N·m")
+    return lignes
+
+
+def figure_bland_altman(
+    ba,
+    pleine_echelle_Nm: float,
+    chemin: Path | None = None,
+    titre: str = "Concordance transmissions / banc GMP (Bland–Altman)",
+):
+    """Écart entre les deux méthodes en fonction du niveau de couple.
+
+    Le diagramme de Bland–Altman répond à une question que la régression ne
+    pose pas : **de combien les deux méthodes diffèrent-elles en pratique, et
+    cet écart est-il constant ?** Une régression peut afficher un R² de 0,9999
+    et masquer un écart de 20 N·m — le coefficient mesure la forme du lien, pas
+    l'accord.
+
+    Les limites de concordance encadrent 95 % des écarts observés. Elles se
+    citent telles quelles : « sur cette campagne, la transmission lit entre
+    −3 et +12 N·m de plus que le banc, dans 95 % des cas ».
+
+    Quand la différence dépend du niveau — c'est le cas dès qu'il existe une
+    erreur de gain — les limites constantes sont trompeuses : trop larges au
+    milieu de la plage, trop étroites aux extrémités. La figure le signale et
+    trace alors la droite de tendance.
+    """
+    _appliquer_style()
+    figure, ax = plt.subplots(figsize=(7.0, 4.6))
+
+    if ba.non_calculable:
+        _habiller(ax, titre, "Moyenne des deux méthodes (N·m)",
+                  "Transmissions − banc (N·m)")
+        _annoter(ax, ba.non_calculable.replace(" : ", " :\n"))
+        if chemin is not None:
+            figure.savefig(chemin)
+            plt.close(figure)
+            return chemin
+        return figure
+
+    # Les limites d'abord, en chrome : ce sont des repères, pas des données.
+    ax.axhline(ba.biais_Nm, color=ENCRE_2, linewidth=1.3, zorder=2,
+               label=f"biais {ba.biais_Nm:+.2f} N·m")
+    for limite in (ba.limite_basse_Nm, ba.limite_haute_Nm):
+        ax.axhline(limite, color=ATTENUE, linewidth=1.1, linestyle=(0, (6, 4)),
+                   zorder=2)
+    # Une seule entrée de légende pour les deux limites, qui vont par paire.
+    ax.plot([], [], color=ATTENUE, linewidth=1.1, linestyle=(0, (6, 4)),
+            label=f"limites de concordance ±{FACTEUR_LIMITES:g} σ")
+    if math.isfinite(ba.demi_ic_limites_Nm):
+        for limite in (ba.limite_basse_Nm, ba.limite_haute_Nm):
+            ax.axhspan(limite - ba.demi_ic_limites_Nm, limite + ba.demi_ic_limites_Nm,
+                       color=ATTENUE, alpha=0.10, linewidth=0, zorder=1)
+
+    for sens, libelle, couleur, marqueur in (
+        ("montee", "montée", SERIE_1, "o"), ("descente", "descente", SERIE_2, "^"),
+    ):
+        idx = [i for i, s in enumerate(ba.sens) if s == sens]
+        if idx:
+            _points(ax, ba.moyennes_Nm[idx], ba.differences_Nm[idx], couleur,
+                    libelle, marqueur)
+    autres = [i for i, s in enumerate(ba.sens) if s not in ("montee", "descente")]
+    if autres:
+        _points(ax, ba.moyennes_Nm[autres], ba.differences_Nm[autres],
+                TEINTE_PALIER, "sens indéterminé", "s")
+
+    lignes = _lignes_bland_altman(ba)
+    if ba.tendance_significative:
+        xs = np.linspace(float(ba.moyennes_Nm.min()), float(ba.moyennes_Nm.max()), 50)
+        ordonnee = ba.biais_Nm + ba.pente_tendance * (xs - float(ba.moyennes_Nm.mean()))
+        ax.plot(xs, ordonnee, color=SERIE_3, linewidth=1.3, linestyle=(0, (2, 2)),
+                zorder=3, label="tendance de l'écart")
+        lignes.append(
+            f"⚠ écart proportionnel au niveau : {1000 * ba.pente_tendance:+.1f} N·m "
+            f"par kN·m (p = {ba.p_tendance:.1e})"
+        )
+    if not ba.limites_fiables:
+        lignes.append("⚠ peu de paliers : limites mal déterminées")
+
+    _annoter(ax, "\n".join(lignes))
+    _habiller(ax, titre, "Moyenne des deux méthodes (N·m)",
+              "Transmissions − banc (N·m)")
+    _marge_y(ax, haut=0.34, bas=0.14)
+    _legende_hors_trace(ax, ncol=3)
+    figure.tight_layout()
+    if chemin is not None:
+        figure.savefig(chemin)
+        plt.close(figure)
+        return chemin
+    return figure
 
 
 # ---------------------------------------------------------------------------

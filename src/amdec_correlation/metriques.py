@@ -402,6 +402,129 @@ def non_linearite_Nm(reg: Regression, pleine_echelle_Nm: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Concordance des deux méthodes (Bland–Altman)
+# ---------------------------------------------------------------------------
+
+# Bland & Altman, « Statistical methods for assessing agreement between two
+# methods of clinical measurement », The Lancet, 1986. Les limites de
+# concordance couvrent 95 % des écarts sous hypothèse de normalité.
+FACTEUR_LIMITES = 1.96
+
+# En deçà, les limites de concordance sont trop mal déterminées pour être
+# citées : leur intervalle de confiance devient plus large qu'elles.
+N_MIN_LIMITES_FIABLES = 10
+
+
+@dataclass
+class BlandAltman:
+    """Concordance entre transmissions instrumentées et référence banc.
+
+    Convention identique au reste du pipeline : la différence est
+    `mesuré − référence`. Une différence positive signifie que la transmission
+    lit plus fort que le banc.
+    """
+
+    moyennes_Nm: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
+    differences_Nm: np.ndarray = field(default_factory=lambda: np.array([]), repr=False)
+    sens: tuple[str, ...] = ()
+    biais_Nm: float = float("nan")
+    ecart_type_Nm: float = float("nan")
+    limite_basse_Nm: float = float("nan")
+    limite_haute_Nm: float = float("nan")
+    demi_ic_limites_Nm: float = float("nan")
+    n: int = 0
+    pente_tendance: float = float("nan")
+    p_tendance: float = float("nan")
+    non_calculable: str | None = None
+
+    @property
+    def tendance_significative(self) -> bool:
+        """La différence dépend-elle du niveau de couple ?
+
+        Si oui, les limites de concordance fixes sont trompeuses : elles sont
+        trop larges au milieu de la plage et trop étroites aux extrémités.
+        C'est le cas dès qu'il existe une erreur de gain — et il y en a
+        presque toujours une.
+        """
+        return bool(math.isfinite(self.p_tendance) and self.p_tendance < 0.05)
+
+    @property
+    def limites_fiables(self) -> bool:
+        return self.n >= N_MIN_LIMITES_FIABLES
+
+
+def bland_altman(paliers: Sequence[Palier]) -> BlandAltman:
+    """Concordance des deux méthodes sur les paliers stabilisés.
+
+    HYPOTHÈSES :
+
+      * la comparaison porte sur les **paliers stabilisés**, un point par
+        palier, et non sur les échantillons bruts. Sur les échantillons, un
+        retard de quelques dizaines de millisecondes produirait pendant les
+        transitoires des écarts de plusieurs centaines de N·m qui ne doivent
+        rien à la concordance des méthodes : le nuage mesurerait la
+        synchronisation, pas l'accord ;
+      * l'abscisse est la **moyenne des deux méthodes**, comme dans la méthode
+        d'origine, et non la seule référence. Porter la différence en fonction
+        de la référence introduit une corrélation artificielle dès que la
+        référence porte elle-même une erreur de mesure. Ici les deux abscisses
+        ne diffèrent que d'un demi-résidu — quelques N·m sur un millier — mais
+        la construction reste celle qui se cite ;
+      * les limites de concordance valent `biais ± 1,96 σ`, sous hypothèse de
+        normalité des écarts.
+
+    L'incertitude sur ces limites est calculée : avec peu de paliers, elles
+    sont mal déterminées, et l'annoncer évite de les lire comme une garantie.
+    """
+    exploitables = [p for p in paliers if math.isfinite(p.reference)
+                    and math.isfinite(p.mesure)]
+    if len(exploitables) < 3:
+        return BlandAltman(
+            non_calculable=(
+                "concordance non calculable : "
+                f"{len(exploitables)} palier(s) stabilisé(s) exploitable(s), il en "
+                "faut au moins 3 pour estimer une dispersion des écarts"
+            )
+        )
+
+    reference = np.array([p.reference for p in exploitables], dtype=float)
+    mesure = np.array([p.mesure for p in exploitables], dtype=float)
+    moyennes = 0.5 * (mesure + reference)
+    differences = mesure - reference
+
+    biais = float(np.mean(differences))
+    s = float(np.std(differences, ddof=1))
+    n = len(exploitables)
+
+    # Incertitude des limites : var(biais ± 1,96 s) ≈ (1/n + 1,96²/(2(n−1)))·s²,
+    # soit approximativement 3s²/n. C'est l'expression donnée par Bland &
+    # Altman pour l'intervalle de confiance des limites de concordance.
+    erreur_type = s * math.sqrt(3.0 / n)
+    demi_ic = float(stats.t.ppf(0.975, n - 1) * erreur_type)
+
+    # Tendance : la différence croît-elle avec le niveau ? Une erreur de gain
+    # s'y lit directement, et invalide des limites de concordance constantes.
+    pente, p_value = float("nan"), float("nan")
+    if float(np.ptp(moyennes)) > 0:
+        ajustement = stats.linregress(moyennes, differences)
+        pente, p_value = float(ajustement.slope), float(ajustement.pvalue)
+
+    return BlandAltman(
+        moyennes_Nm=moyennes,
+        differences_Nm=differences,
+        sens=tuple(p.sens for p in exploitables),
+        biais_Nm=biais,
+        ecart_type_Nm=s,
+        limite_basse_Nm=biais - FACTEUR_LIMITES * s,
+        limite_haute_Nm=biais + FACTEUR_LIMITES * s,
+        demi_ic_limites_Nm=demi_ic,
+        n=n,
+        pente_tendance=pente,
+        p_tendance=p_value,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Répétabilité
 # ---------------------------------------------------------------------------
 

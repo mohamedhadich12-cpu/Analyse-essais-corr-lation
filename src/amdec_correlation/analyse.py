@@ -214,6 +214,7 @@ class ResultatCampagne:
     regression_globale: M.Regression | None = None
     source_regression: str = ""
     hysteresis_globale: M.Hysteresis | None = None
+    bland_altman: M.BlandAltman | None = None
     non_linearite_Nm: float = float("nan")
     repetabilite_globale: M.Repetabilite | None = None
     recalages_globaux: list[tuple[Path, M.Recalage]] = field(default_factory=list, repr=False)
@@ -900,6 +901,17 @@ def analyser_automatique(cfg: Config) -> ResultatCampagne:
                 M.hysteresis(paliers_tous, cfg.pleine_echelle_Nm, cfg.paliers),
                 cfg.pleine_echelle_Nm, dossier_figures / "regression_paliers.png",
                 titre="Paliers stabilisés — corrélation transmissions / banc GMP",
+            )
+        )
+        # Concordance des deux méthodes. La régression dit si le lien est
+        # linéaire ; elle ne dit pas de combien les deux chaînes diffèrent en
+        # pratique. C'est la question que pose Bland–Altman, et un R² de 0,9999
+        # peut parfaitement cacher un écart de 20 N·m.
+        campagne.bland_altman = M.bland_altman(paliers_tous)
+        campagne.figures.append(
+            graphiques.figure_bland_altman(
+                campagne.bland_altman, cfg.pleine_echelle_Nm,
+                dossier_figures / "concordance_bland_altman.png",
             )
         )
 
